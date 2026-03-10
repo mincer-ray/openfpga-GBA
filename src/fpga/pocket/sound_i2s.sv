@@ -27,15 +27,12 @@ module sound_i2s #(
     parameter CHANNEL_WIDTH = 16,
     parameter SIGNED_INPUT  = 0
 ) (
-    // input wire clk_74a,
-    // input wire clk_audio,
     input wire audio_sclk,
 
-    // Left and right audio channels. ~~Can be in an arbitrary `clk_audio` domain~~
+    // Left and right audio channels
     input wire [CHANNEL_WIDTH - 1:0] audio_l,
     input wire [CHANNEL_WIDTH - 1:0] audio_r,
 
-    // output reg audio_mclk,
     output reg audio_lrck,
     output reg audio_dac
 );
@@ -44,30 +41,6 @@ module sound_i2s #(
   //
 
   reg audgen_nextsamp;
-
-  // generate MCLK = 12.288mhz with fractional accumulator
-  // reg [21:0] audgen_accum = 0;
-  // localparam [20:0] CYCLE_48KHZ = 21'd122880 * 2;
-  // always @(posedge clk_74a) begin
-  //   audgen_accum <= audgen_accum + CYCLE_48KHZ;
-  //   if (audgen_accum >= 21'd742500) begin
-  //     audio_mclk   <= ~audio_mclk;
-  //     audgen_accum <= audgen_accum - 21'd742500 + CYCLE_48KHZ;
-  //   end
-  // end
-
-  // // generate SCLK = 3.072mhz by dividing MCLK by 4
-  // reg [1:0] aud_mclk_divider;
-  // reg prev_audio_mclk;
-  // wire audgen_sclk = aud_mclk_divider[1]  /* synthesis keep*/;
-
-  // always @(posedge clk_74a) begin
-  //   if (audio_mclk && ~prev_audio_mclk) begin
-  //     aud_mclk_divider <= aud_mclk_divider + 1'b1;
-  //   end
-
-  //   prev_audio_mclk <= audio_mclk;
-  // end
 
   // shift out audio data as I2S
   // 32 total bits per channel, but only 16 active bits at the start and then 16 dummy bits

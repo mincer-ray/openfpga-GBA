@@ -78,3 +78,10 @@ if [[ -f "$RESULTS_DIR/best/ap_core.rbf" ]]; then
     echo "Best bitstream saved to: $RESULTS_DIR/best/ap_core.rbf"
     echo "To deploy: python3 scripts/reverse_bitstream.py $RESULTS_DIR/best/ap_core.rbf pkg/Cores/mincer_ray.GBA/bitstream.rbf_r"
 fi
+
+# Update the QSF with the best seed
+if [[ "$BEST_SEED" -gt 0 ]]; then
+    QSF_FILE="$PROJECT_DIR/src/fpga/build/ap_core.qsf"
+    sed -i '' "s/set_global_assignment -name SEED .*/set_global_assignment -name SEED $BEST_SEED/" "$QSF_FILE"
+    echo "Updated $QSF_FILE with SEED $BEST_SEED"
+fi

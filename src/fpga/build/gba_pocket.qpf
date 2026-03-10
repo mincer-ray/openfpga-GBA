@@ -29,5 +29,4 @@ DATE = "21:25:37  March 01, 2026"
 # Revisions
 
 PROJECT_REVISION = "ap_core"
-PROJECT_REVISION = "synth_dryrun"
 PROJECT_REVISION = "gba_pocket"

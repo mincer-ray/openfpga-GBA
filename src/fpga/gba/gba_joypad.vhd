@@ -80,18 +80,6 @@ begin
             end if;
          end if;
          
-         -- debug only
-         --if (cpu_done = '1') then
-         --   debug_cnt <= debug_cnt + 1;
-         --   
-         --   if (debug_cnt =       0) then REG_KEYINPUT(3) <= '1'; end if;
-         --   if (debug_cnt = 3000000) then REG_KEYINPUT(3) <= '0'; end if;
-         --   if (debug_cnt = 3100000) then REG_KEYINPUT(3) <= '1'; end if;
-         --   if (debug_cnt = 4000000) then REG_KEYINPUT(3) <= '0'; end if;
-         --   
-         --end if;
-
-      
       end if;
    end process; 
     

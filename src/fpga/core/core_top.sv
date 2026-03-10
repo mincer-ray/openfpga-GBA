@@ -1206,6 +1206,21 @@ always @(posedge clk_74a) begin
 end
 
 
+// ---- Interact menu config registers (clk_74a domain) ----
+reg ff_mode = 0; // 0 = Hold, 1 = Toggle
+
+always @(posedge clk_74a) begin
+    if (bridge_wr) begin
+        casex (bridge_addr)
+        32'h80: ff_mode <= bridge_wr_data[0];
+        endcase
+    end
+end
+
+// ---- CDC: ff_mode → clk_sys ----
+wire ff_mode_s;
+synch_3 ff_mode_sync(ff_mode, ff_mode_s, clk_sys);
+
 // ============================================================
 // Section 4: Video Output — framebuffer + raster scan
 // ============================================================
@@ -1291,8 +1306,22 @@ wire key_right  = cont1_key_s[3];
 wire key_r      = cont1_key_s[9];
 wire key_l      = cont1_key_s[8];
 
-// Y button (bit 7) — Fast Forward (hold), not a GBA button
-wire fast_forward = cont1_key_s[7];
+// Y button (bit 7) — Fast Forward, not a GBA button
+// Hold mode: active while button pressed
+// Toggle mode: press toggles on/off
+wire ff_button = cont1_key_s[7];
+
+reg ff_button_prev;
+reg ff_toggle_state;
+
+always @(posedge clk_sys) begin
+    ff_button_prev <= ff_button;
+    // Rising edge of button press toggles the state
+    if (ff_button && !ff_button_prev)
+        ff_toggle_state <= ~ff_toggle_state;
+end
+
+wire fast_forward = ff_mode_s ? ff_toggle_state : ff_button;
 
 
 // ============================================================
