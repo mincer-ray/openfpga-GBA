@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Bump version
+        id: version
+        run: |
+          CURRENT=$(jq -r '.core.metadata.version' pkg/Cores/mincer_ray.GBA/core.json)
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          case "${{ inputs.bump }}" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+          NEW="${MAJOR}.${MINOR}.${PATCH}"
+          jq --arg v "$NEW" '.core.metadata.version = $v' pkg/Cores/mincer_ray.GBA/core.json > tmp.json && mv tmp.json pkg/Cores/mincer_ray.GBA/core.json
+          echo "version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "Bumped $CURRENT → $NEW"
+
+      - name: Compile
+        run: docker run --rm -v ${{ github.workspace }}:/build -w /build raetro/quartus:21.1 quartus_sh -t generate.tcl
+
+      - name: Reverse bitstream
+        run: python3 scripts/reverse_bitstream.py src/fpga/build/output_files/ap_core.rbf pkg/Cores/mincer_ray.GBA/bitstream.rbf_r
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pkg/Cores/mincer_ray.GBA/core.json
+          git commit -m "release v${{ steps.version.outputs.version }}"
+          git tag "v${{ steps.version.outputs.version }}"
+          git push origin HEAD --tags
+
+      - name: Package release zip
+        run: cd pkg && zip -r ../mincer_ray.GBA_${{ steps.version.outputs.version }}.zip .
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          files: mincer_ray.GBA_${{ steps.version.outputs.version }}.zip
+          generate_release_notes: true
+
+      - name: Upload reports
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: |
+            src/fpga/build/output_files/ap_core.fit.summary
+            src/fpga/build/output_files/ap_core.sta.summary
+            src/fpga/build/output_files/ap_core.flow.rpt
+            build_output/reports/
+
+      - name: Upload output_files on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-output
+          path: src/fpga/build/output_files/

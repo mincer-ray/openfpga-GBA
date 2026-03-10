@@ -1,0 +1,34 @@
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editors
+*.swp
+*.swo
+*~
+.claude/
+.vscode/
+.idea/
+
+# Quartus build artifacts
+output_files/
+db/
+incremental_db/
+src/fpga/**/*.rpt
+src/fpga/**/*.summary
+src/fpga/build/ap_core_assignment_defaults.qdf
+src/fpga/build/c5_pin_model_dump.txt
+src/fpga/apf/build_id.mif
+
+# Logs
+*.log
+
+# Build outputs
+bitstream.rbf_r
+pkg/Cores/mincer_ray.GBA/bitstream.rbf_r
+build_output/
+test_results.txt
+
+# Cloned Reference
+reference/*
