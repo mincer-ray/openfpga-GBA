@@ -38,6 +38,7 @@ jobs:
           esac
           NEW="${MAJOR}.${MINOR}.${PATCH}"
           jq --arg v "$NEW" '.core.metadata.version = $v' pkg/Cores/mincer_ray.GBA/core.json > tmp.json && mv tmp.json pkg/Cores/mincer_ray.GBA/core.json
+          jq --arg d "$(date -u +%Y-%m-%d)" '.core.metadata.date_release = $d' pkg/Cores/mincer_ray.GBA/core.json > tmp.json && mv tmp.json pkg/Cores/mincer_ray.GBA/core.json
           echo "version=$NEW" >> "$GITHUB_OUTPUT"
           echo "Bumped $CURRENT → $NEW"
 

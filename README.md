@@ -1,6 +1,6 @@
-# Game Boy Advance for Analogue Pocket
+# GBA for Analogue Pocket
 
-Ported from [MiSTer GBA core](https://github.com/MiSTer-devel/GBA_MiSTer)
+LLM assisted port of [MiSTer GBA core](https://github.com/MiSTer-devel/GBA_MiSTer)
 
 ## Features
 
@@ -46,7 +46,7 @@ Should be very easy
 
 ## Known Issues
 
-- will go here
+- **Fast forward speed varies by game** — Games that make heavy use of the GBA's slower external RAM will not fast-forward as quickly as games that primarily use internal RAM. This is most noticeable with the Classic NES Series titles. Normal-speed gameplay is unaffected.
 
 ## Credits
 
