@@ -1234,7 +1234,12 @@ wire [31:0] save_size_bytes = sram_quirk_s ? 32'd0 :
                               flash_1m_s   ? 32'h0002_0010 :  // 128 KB + 16
                                              32'h0001_0010;   // 64 KB + 16
 
-// Continuously drive datatable port A with save size
+// Continuously drive datatable port A with save size.
+// Writing every cycle is intentional: the Pocket OS may write to the same
+// datatable address via port B during bookkeeping, overwriting a one-shot value.
+// Continuous writes ensure the core's value is always current when the OS reads
+// it on core exit for save writeback. This is just a BRAM write port — no cost.
+// Matches the pattern used by the GBC reference core (budude2/openfpga-GBC).
 always @(posedge clk_74a) begin
     if (~pll_core_locked_s) begin
         datatable_addr_r <= 10'd0;
@@ -1365,8 +1370,8 @@ wire key_l      = cont1_key_s[8];
 // Toggle mode: press toggles on/off
 wire ff_button = cont1_key_s[7];
 
-reg ff_button_prev;
-reg ff_toggle_state;
+reg ff_button_prev = 0;
+reg ff_toggle_state = 0;
 
 always @(posedge clk_sys) begin
     ff_button_prev <= ff_button;

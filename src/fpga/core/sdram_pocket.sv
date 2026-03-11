@@ -78,8 +78,12 @@ localparam NO_WRITE_BURST = 1'b1;
 
 localparam [12:0] MODE = {3'b000, NO_WRITE_BURST, OP_MODE, CAS_LATENCY, ACCESS_TYPE, BURST_CODE};
 
+// 200 µs power-up delay at 100 MHz = 20000 cycles; 256 is conservative min
 localparam STARTUP_CYCLES      = 14'd256;
+// SDRAM: 8192 rows refreshed in 64 ms → 64e6 ns / 8192 = 7812.5 ns per row
+// At 100.66 MHz (9.93 ns period): 7812.5 / 9.93 ≈ 787 cycles; 780 adds margin
 localparam CYCLES_PER_REFRESH  = 14'd780;
+// Saturated counter initial value so first refresh fires after startup
 localparam STARTUP_REFRESH_MAX = 14'b11111111111111;
 
 // ============================================================
@@ -136,30 +140,30 @@ assign wr_pending  = wr_rq;
 // Internal Registers
 // ============================================================
 
-reg        req_pending;
-reg        req_is_write;
-reg        req_is_ch2;        // Current request is ch2 (EWRAM)
-reg        req_is_ch2_write;  // Current request is ch2 write
-reg [24:0] req_addr;
-reg [15:0] req_wdata;
+reg        req_pending      = 0;
+reg        req_is_write     = 0;
+reg        req_is_ch2       = 0;  // Current request is ch2 (EWRAM)
+reg        req_is_ch2_write = 0;  // Current request is ch2 write
+reg [24:0] req_addr         = 0;
+reg [15:0] req_wdata        = 0;
 
 localparam CAPTURE_DELAY = CAS_LATENCY + BURST_COUNT; // 2 + 4 = 6
-reg [CAPTURE_DELAY:0] data_ready_delay;
-reg        capture_is_ch2;    // Read data should go to ch2_dout
-reg [15:0] dq_reg;
-reg [12:0] cas_addr;
+reg [CAPTURE_DELAY:0] data_ready_delay = 0;
+reg        capture_is_ch2   = 0;  // Read data should go to ch2_dout
+reg [15:0] dq_reg           = 0;
+reg [12:0] cas_addr         = 0;
 
 // Ch1 sticky request latches
-reg        wr_rq;
-reg [24:0] wr_rq_addr;
-reg [15:0] wr_rq_data;
-reg        rd_rq;
+reg        wr_rq      = 0;
+reg [24:0] wr_rq_addr = 0;
+reg [15:0] wr_rq_data = 0;
+reg        rd_rq      = 0;
 
 // Ch2 sticky request latches
-reg        ch2_rd_rq;
-reg        ch2_wr_rq;
-reg [24:0] ch2_rq_addr;
-reg [31:0] ch2_rq_din;
+reg        ch2_rd_rq   = 0;
+reg        ch2_wr_rq   = 0;
+reg [24:0] ch2_rq_addr = 0;
+reg [31:0] ch2_rq_din  = 0;
 
 // ============================================================
 // Main State Machine
