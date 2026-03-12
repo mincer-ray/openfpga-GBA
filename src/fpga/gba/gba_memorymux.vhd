@@ -128,6 +128,7 @@ architecture arch of gba_memorymux is
    type tState is
    (
       IDLE,
+      ADDR_DECODE,
       READBIOS,
       READSMALLRAM,
       READPALETTERAM,
@@ -184,7 +185,9 @@ architecture arch of gba_memorymux is
    signal smallram_we        : std_logic_vector(0 to 3) := (others => '0');
                              
    signal read_operation     : std_logic := '0';
-                             
+   signal rnw_save           : std_logic := '0';
+   signal upper_nonzero      : std_logic := '0';
+
    signal rotate_writedata   : std_logic_vector(31 downto 0) := (others => '0');
    
    signal registersettle     : std_logic := '0';
@@ -268,7 +271,7 @@ begin
    port map
    (
       clk       => clk100,
-      address   => mem_bus_Adr(13 downto 2),
+      address   => adr_save(13 downto 2),
       data      => bios_data,
       
       wraddress => bios_wraddr,
@@ -307,7 +310,7 @@ begin
       smallram_DataOut(((i+1) * 8) - 1 downto (i * 8)) <= smallram_dout_single;
    end generate;
    
-   smallram_addr_r <= to_integer(unsigned(mem_bus_Adr(14 downto 2)));
+   smallram_addr_r <= to_integer(unsigned(adr_save(14 downto 2)));
    
    
    i_gamepak_cache : entity work.cache
@@ -444,216 +447,217 @@ begin
          case state is
          
             when IDLE =>
-            
+
                wait_timer <= 0;
-         
+
                if (mem_bus_ena = '1') then
-               
                   adr_save  <= mem_bus_Adr(27 downto 0);
                   acc_save  <= mem_bus_acc;
                   Dout_save <= mem_bus_dout;
-               
-                  if (mem_bus_rnw = '1') then  -- read
-                  
-                     read_operation <= '1';
-                  
-                     return_rotate <= mem_bus_Adr(1 downto 0);
-                     
-                     if (mem_bus_Adr(31 downto 28) /= x"0") then
+                  rnw_save  <= mem_bus_rnw;
+                  if (mem_bus_Adr(31 downto 28) /= x"0") then
+                     upper_nonzero <= '1';
+                  else
+                     upper_nonzero <= '0';
+                  end if;
+                  state <= ADDR_DECODE;
+               end if;
 
-                        state <= READ_UNREADABLE;
-                        
-                     else
-                     
-                        case (mem_bus_Adr(27 downto 24)) is
-                        
-                           when x"0" => 
-                              if (PC_in_BIOS = '0') then
-                                 if (unsigned(mem_bus_Adr) < 16#4000#) then
-                                    --rotate_data <= x"E3A02004"; -- only applies for one situation! -> after irq
-                                    --rotate_data <= x"E55EC002"; -- only applies for one situation! -> after swi
-                                    --rotate_data <= x"E129F000"; -- only applies for one situation! -> after startup
-                                    --rotate_data <= x"E25EF004"; -- only applies for one situation! -> while irq
-                                    rotate_data <= bios_data_last;
-                                    state       <= ROTATE;
+            -- Pipeline stage: decode registered address to break combinational path
+            when ADDR_DECODE =>
+
+               if (rnw_save = '1') then  -- read
+
+                  read_operation <= '1';
+                  return_rotate <= adr_save(1 downto 0);
+
+                  if (upper_nonzero = '1') then
+
+                     state <= READ_UNREADABLE;
+
+                  else
+
+                     case (adr_save(27 downto 24)) is
+
+                        when x"0" =>
+                           if (PC_in_BIOS = '0') then
+                              if (unsigned(adr_save) < 16#4000#) then
+                                 rotate_data <= bios_data_last;
+                                 state       <= ROTATE;
+                              else
+                                 state <= READ_UNREADABLE;
+                              end if;
+                           else
+                              state <= READBIOS;
+                           end if;
+
+                        when x"2" =>
+                           bus_out_Adr  <= std_logic_vector(to_unsigned(Softmap_GBA_WRam_ADDR, busadr_bits) + unsigned(adr_save(17 downto 2)));
+                           bus_out_rnw  <= '1';
+                           bus_out_ena  <= '1';
+                           state        <= WAIT_PROCBUS;
+
+                        when x"3" =>
+                           state         <= READSMALLRAM;
+
+                        when x"4" =>
+                           if (unsigned(adr_save) < x"4000400") then
+                              gb_bus_out.adr <= (gb_bus_out.adr'left downto 12 => '0') & adr_save(11 downto 2) & "00";
+                              gb_bus_out.acc <= acc_save;
+                              gb_bus_out.rnw <= '1';
+                              gb_bus_out.ena <= '1';
+                              state <= WAIT_GBBUS;
+                              if ((unsigned(adr_save(11 downto 0)) >= x"100") and (unsigned(adr_save(11 downto 0)) <= x"10C")) then
+                                 wait_timer <= 7;
+                              end if;
+                           else
+                              state <= READ_UNREADABLE;
+                           end if;
+
+                        when x"5" =>
+                           PALETTE_BG_addr   <= to_integer(unsigned(adr_save(8 downto 2)));
+                           PALETTE_OAM_addr  <= to_integer(unsigned(adr_save(8 downto 2)));
+                           state             <= READPALETTERAM;
+
+                        when x"6" =>
+                           VRAM_Hi_addr   <= to_integer(unsigned(adr_save(14 downto 2)));
+                           VRAM_Lo_addr   <= to_integer(unsigned(adr_save(15 downto 2)));
+                           state          <= READVRAM;
+
+                        when x"7" =>
+                           OAMRAM_PROC_addr <= to_integer(unsigned(adr_save(9 downto 2)));
+                           state         <= READOAMRAM;
+
+                        when x"8" | x"9" | x"A" | x"B" | x"C" =>
+                           if (unsigned(adr_save(24 downto 2)) >= unsigned(MaxPakAddr)) then
+                              state       <= READAFTERPAK;
+                           elsif (sdram_addr_buf = adr_save(24 downto 3) and adr_save(0) = '0' and acc_save = ACCESS_16BIT) then
+                              mem_bus_done <= '1';
+                              state        <= IDLE;
+                              if (adr_save(2) = '0') then
+                                 if (adr_save(1) = '0') then
+                                    mem_bus_din <= x"0000" & sdram_data_buf(15 downto 0);
                                  else
-                                    state <= READ_UNREADABLE;
+                                    mem_bus_din <= x"0000" & sdram_data_buf(31 downto 16);
                                  end if;
                               else
-                                 state <= READBIOS;
+                                 if (adr_save(1) = '0') then
+                                    mem_bus_din <= x"0000" & sdram_data_buf(47 downto 32);
+                                 else
+                                    mem_bus_din <= x"0000" & sdram_data_buf(63 downto 48);
+                                 end if;
                               end if;
-                           
-                           when x"2" =>
-                              bus_out_Adr  <= std_logic_vector(to_unsigned(Softmap_GBA_WRam_ADDR, busadr_bits) + unsigned(mem_bus_Adr(17 downto 2)));
+                           elsif (sdram_addr_buf = adr_save(24 downto 3) and adr_save(1 downto 0) = "00" and acc_save = ACCESS_32BIT) then
+                              mem_bus_done <= '1';
+                              state        <= IDLE;
+                              if (adr_save(2) = '0') then
+                                 mem_bus_din <= sdram_data_buf(31 downto 0);
+                              else
+                                 mem_bus_din <= sdram_data_buf(63 downto 32);
+                              end if;
+                           else
+                              cache_read_enable <= '1';
+                              if (memory_remap = '1') then
+                                 cache_read_addr   <= "00000" & adr_save(19 downto 2);
+                              else
+                                 cache_read_addr   <= adr_save(24 downto 2);
+                              end if;
+                              state             <= WAIT_SDRAM;
+                           end if;
+                           if (specialmodule = '1') then
+                              if (unsigned(adr_save) >= 16#80000C4# and unsigned(adr_save) <= 16#80000C8#) then
+                                 state             <= READ_GPIO;
+                                 mem_bus_done      <= '0';
+                                 cache_read_enable <= '0';
+                                 GPIO_readEna      <= '1';
+                                 GPIO_addr         <= std_logic_vector(to_unsigned(to_integer(unsigned(adr_save(3 downto 1))) - 4 / 2, 2));
+                              end if;
+                           end if;
+
+                        when x"D" =>
+                           state            <= EEPROMREAD;
+
+                        when x"E" | x"F" =>
+                           if (SramFlashEnable = '1') then
+                              state                <= FLASHREAD;
+                              adr_save(1 downto 0) <= adr_save(1 downto 0) or bus_lowbits;
+                              if (acc_save = ACCESS_16BIT and (adr_save(0) or bus_lowbits(0)) = '1') then
+                                 return_rotate        <= "01";
+                              else
+                                 return_rotate        <= "00";
+                              end if;
+                           else
+                              state <= READ_UNREADABLE;
+                           end if;
+
+                        when others => state <= READ_UNREADABLE;
+
+                     end case;
+
+                  end if;
+
+               else -- write
+
+                  read_operation   <= '0';
+
+                  if (upper_nonzero = '1') then
+                     mem_bus_done <= '1';
+                     state        <= IDLE;
+                  else
+
+                     case (adr_save(27 downto 24)) is
+                        when x"2" =>
+                           if (acc_save = ACCESS_32BIT) then
+                              state <= WRITE_WRAMLARGE;
+                           else
+                              bus_out_Adr  <= std_logic_vector(to_unsigned(Softmap_GBA_WRam_ADDR, busadr_bits) + unsigned(adr_save(17 downto 2)));
                               bus_out_rnw  <= '1';
                               bus_out_ena  <= '1';
-                              state        <= WAIT_PROCBUS;
-                              
-                           when x"3" =>
-                              state         <= READSMALLRAM;
-                           
-                           when x"4" =>
-                              if (unsigned(mem_bus_Adr) < x"4000400") then
-                                 gb_bus_out.adr <= (gb_bus_out.adr'left downto 12 => '0') & mem_bus_Adr(11 downto 2) & "00";
-                                 gb_bus_out.acc <= mem_bus_acc;
-                                 gb_bus_out.rnw <= '1';
-                                 gb_bus_out.ena <= '1';
-                                 state <= WAIT_GBBUS;
-                                 if ((unsigned(mem_bus_Adr(11 downto 0)) >= x"100") and (unsigned(mem_bus_Adr(11 downto 0)) <= x"10C")) then
-                                    wait_timer <= 7;
-                                 end if;
-                              else
-                                 state <= READ_UNREADABLE;
-                              end if;
-                              
-                           when x"5" =>
-                              PALETTE_BG_addr   <= to_integer(unsigned(mem_bus_Adr(8 downto 2)));
-                              PALETTE_OAM_addr  <= to_integer(unsigned(mem_bus_Adr(8 downto 2)));
-                              state             <= READPALETTERAM;   
-                              
-                           when x"6" =>
-                              VRAM_Hi_addr   <= to_integer(unsigned(mem_bus_Adr(14 downto 2)));
-                              VRAM_Lo_addr   <= to_integer(unsigned(mem_bus_Adr(15 downto 2)));
-                              state          <= READVRAM; 
-   
-                           when x"7" =>
-                              OAMRAM_PROC_addr <= to_integer(unsigned(mem_bus_Adr(9 downto 2)));
-                              state         <= READOAMRAM;  
-   
-                           when x"8" | x"9" | x"A" | x"B" | x"C" =>
-                              --bus_out_Adr  <= std_logic_vector(to_unsigned(Softmap_GBA_Gamerom.adr, busadr_bits) + unsigned(mem_bus_Adr(24 downto 2)));
-                              --bus_out_rnw  <= '1';
-                              --bus_out_ena  <= '1';
-                              --state             <= WAIT_PROCBUS;
-                              if (unsigned(mem_bus_Adr(24 downto 2)) >= unsigned(MaxPakAddr)) then
-                                 state       <= READAFTERPAK;
-                              elsif (sdram_addr_buf = mem_bus_Adr(24 downto 3) and mem_bus_Adr(0) = '0' and mem_bus_acc = ACCESS_16BIT) then
-                                 mem_bus_done <= '1'; 
-                                 if (mem_bus_Adr(2) = '0') then
-                                    if (mem_bus_Adr(1) = '0') then
-                                       mem_bus_din <= x"0000" & sdram_data_buf(15 downto 0);
-                                    else
-                                       mem_bus_din <= x"0000" & sdram_data_buf(31 downto 16);
-                                    end if;
-                                 else
-                                    if (mem_bus_Adr(1) = '0') then
-                                       mem_bus_din <= x"0000" & sdram_data_buf(47 downto 32);
-                                    else
-                                       mem_bus_din <= x"0000" & sdram_data_buf(63 downto 48);
-                                    end if;
-                                 end if;
-                              elsif (sdram_addr_buf = mem_bus_Adr(24 downto 3) and mem_bus_Adr(1 downto 0) = "00" and mem_bus_acc = ACCESS_32BIT) then
-                                 mem_bus_done <= '1';
-                                 if (mem_bus_Adr(2) = '0') then
-                                    mem_bus_din <= sdram_data_buf(31 downto 0);
-                                 else
-                                    mem_bus_din <= sdram_data_buf(63 downto 32);
-                                 end if;
-                              else
-                                 cache_read_enable <= '1';
-                                 if (memory_remap = '1') then
-                                    cache_read_addr   <= "00000" & mem_bus_Adr(19 downto 2);
-                                 else
-                                    cache_read_addr   <= mem_bus_Adr(24 downto 2);
-                                 end if;
-                                 state             <= WAIT_SDRAM;
-                              end if;
-                              if (specialmodule = '1') then
-                                 if (unsigned(mem_bus_Adr(27 downto 0)) >= 16#80000C4# and unsigned(mem_bus_Adr(27 downto 0)) <= 16#80000C8#) then
-                                    state             <= READ_GPIO;
-                                    mem_bus_done      <= '0';
-                                    cache_read_enable <= '0';
-                                    GPIO_readEna      <= '1';
-                                    GPIO_addr         <= std_logic_vector(to_unsigned(to_integer(unsigned(mem_bus_Adr(3 downto 1))) - 4 / 2, 2));
-                                 end if;
-                              end if;
-                           
-                           when x"D" =>
-                              state            <= EEPROMREAD;  
-   
-                           when x"E" | x"F" =>
-                              if (SramFlashEnable = '1') then
-                                 state                <= FLASHREAD; 
-                                 adr_save(1 downto 0) <= mem_bus_Adr(1 downto 0) or bus_lowbits;
-                                 if (mem_bus_acc = ACCESS_16BIT and (mem_bus_Adr(0) or bus_lowbits(0)) = '1') then
-                                    return_rotate        <= "01";
-                                 else
-                                    return_rotate        <= "00";
-                                 end if;
-                              else
-                                 state <= READ_UNREADABLE;
-                              end if;
-                           
-                           when others => state <= READ_UNREADABLE; --report "reading here not implemented!" severity failure;
-                           
-                        end case;
-                        
-                     end if;
-                     
-                  else -- write
-                  
-                     read_operation   <= '0';
-                     
-                     if (mem_bus_Adr(31 downto 28) /= x"0") then
+                              state             <= WAIT_WRAMREADMODIFYWRITE;
+                           end if;
 
-                        mem_bus_done <= '1';
-                        
-                     else
-                     
-                        case (mem_bus_Adr(27 downto 24)) is
-                           when x"2" => 
-                              if (mem_bus_acc = ACCESS_32BIT) then
-                                 state <= WRITE_WRAMLARGE;
-                              else
-                                 bus_out_Adr  <= std_logic_vector(to_unsigned(Softmap_GBA_WRam_ADDR, busadr_bits) + unsigned(mem_bus_Adr(17 downto 2)));
-                                 bus_out_rnw  <= '1';
-                                 bus_out_ena  <= '1';
-                                 state             <= WAIT_WRAMREADMODIFYWRITE;
+                        -- done is ok, if the next state goes back to idle without conditions
+                        when x"3" => state <= WRITE_WRAMSMALL; mem_bus_done <= '1';
+
+                        when x"4" =>
+                           state <= WRITE_REG;
+                           registersettle_cnt <= 7;
+                           registersettle     <= '1';
+
+                        when x"5" => state <= WRITE_PALETTE;   mem_bus_done <= '1';
+                        when x"6" => state <= WRITE_VRAM;      mem_bus_done <= not vram_blocked or adr_save(16); vramwait <= vram_blocked;
+                        when x"7" => state <= WRITE_OAM;       mem_bus_done <= '1';
+                        when x"8" =>
+                           mem_bus_done <= '1';
+                           state        <= IDLE;
+                           if (specialmodule = '1') then
+                              if (unsigned(adr_save) >= 16#80000C4# and unsigned(adr_save) <= 16#80000C8#) then
+                                 GPIO_writeEna <= '1';
+                                 GPIO_addr     <= std_logic_vector(to_unsigned(to_integer(unsigned(adr_save(3 downto 1))) - 4 / 2, 2));
+                                 GPIO_Dout     <= Dout_save(3 downto 0);
                               end if;
-                               
-                           -- done is ok, if the next state goes back to idle without conditions
-                           when x"3" => state <= WRITE_WRAMSMALL; mem_bus_done <= '1'; 
-                           
-                           when x"4" => 
-                              state <= WRITE_REG;
-                              registersettle_cnt <= 7;
-                              registersettle     <= '1';
-                           
-                           when x"5" => state <= WRITE_PALETTE;   mem_bus_done <= '1';
-                           when x"6" => state <= WRITE_VRAM;      mem_bus_done <= not vram_blocked or mem_bus_Adr(16); vramwait <= vram_blocked;
-                           when x"7" => state <= WRITE_OAM;       mem_bus_done <= '1';
-                           when x"8" =>
-                              mem_bus_done <= '1';
-                              if (specialmodule = '1') then
-                                 if (unsigned(mem_bus_Adr(27 downto 0)) >= 16#80000C4# and unsigned(mem_bus_Adr(27 downto 0)) <= 16#80000C8#) then
-                                    GPIO_writeEna <= '1';
-                                    GPIO_addr     <= std_logic_vector(to_unsigned(to_integer(unsigned(mem_bus_Adr(3 downto 1))) - 4 / 2, 2));
-                                    GPIO_Dout     <= mem_bus_dout(3 downto 0);
-                                 end if;
-                              end if;
-                           
-                           when x"D" => state <= EEPROMWRITE;  
-                           when x"E" | x"F" => state <= FLASHSRAMWRITEDECIDE1; adr_save(1 downto 0) <= mem_bus_Adr(1 downto 0) or bus_lowbits;
-                           when others => mem_bus_done <= '1'; --report "writing here not implemented!" severity failure;
-                        end case;
-                     
-                     end if;
-                     
-                     rotate_writedata <= mem_bus_dout; -- default, full dword
-                     if (mem_bus_acc = ACCESS_8BIT) then
-                        case(mem_bus_Adr(1 downto 0)) is
-                           when "00" => rotate_writedata( 7 downto  0) <= mem_bus_dout(7 downto 0);
-                           when "01" => rotate_writedata(15 downto  8) <= mem_bus_dout(7 downto 0);
-                           when "10" => rotate_writedata(23 downto 16) <= mem_bus_dout(7 downto 0);
-                           when "11" => rotate_writedata(31 downto 24) <= mem_bus_dout(7 downto 0);
-                           when others => null;
-                        end case;
-                     elsif (mem_bus_acc = ACCESS_16BIT and mem_bus_Adr(1) = '1') then
-                        rotate_writedata(31 downto 16) <= mem_bus_dout(15 downto 0);
-                     end if;
-               
+                           end if;
+
+                        when x"D" => state <= EEPROMWRITE;
+                        when x"E" | x"F" => state <= FLASHSRAMWRITEDECIDE1; adr_save(1 downto 0) <= adr_save(1 downto 0) or bus_lowbits;
+                        when others => mem_bus_done <= '1'; state <= IDLE;
+                     end case;
+
                   end if;
-               
+
+                  rotate_writedata <= Dout_save; -- default, full dword
+                  if (acc_save = ACCESS_8BIT) then
+                     case(adr_save(1 downto 0)) is
+                        when "00" => rotate_writedata( 7 downto  0) <= Dout_save(7 downto 0);
+                        when "01" => rotate_writedata(15 downto  8) <= Dout_save(7 downto 0);
+                        when "10" => rotate_writedata(23 downto 16) <= Dout_save(7 downto 0);
+                        when "11" => rotate_writedata(31 downto 24) <= Dout_save(7 downto 0);
+                        when others => null;
+                     end case;
+                  elsif (acc_save = ACCESS_16BIT and adr_save(1) = '1') then
+                     rotate_writedata(31 downto 16) <= Dout_save(15 downto 0);
+                  end if;
+
                end if;
                
             -- reading
