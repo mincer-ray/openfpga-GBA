@@ -2,13 +2,15 @@
   "core": {
     "magic": "APF_VER_1",
     "metadata": {
-      "platform_ids": ["gba"],
+      "platform_ids": [
+        "gba"
+      ],
       "shortname": "GBA",
       "description": "Game Boy Advance",
       "author": "mincer_ray",
       "url": "https://github.com/mincer-ray/openfpga-GBA",
-      "version": "0.1.0",
-      "date_release": "2026-01-01"
+      "version": "0.1.1",
+      "date_release": "2026-03-13"
     },
     "framework": {
       "target_product": "Analogue Pocket",
