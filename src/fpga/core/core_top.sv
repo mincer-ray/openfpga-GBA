@@ -1206,7 +1206,7 @@ end
 // Matches the pattern used by the GBC reference core (budude2/openfpga-GBC).
 // All logic in clk_74a domain (same clock as mf_datatable).
 
-// CDC: flash_1m and sram_quirk from clk_sys → clk_74a (stable after download)
+// CDC: flash_1m, sram_quirk, gpio_quirk from clk_sys → clk_74a (stable after download)
 wire flash_1m_s;
 synch_3 flash_1m_sync (
     .i   ( det_flash_1m ),
@@ -1221,6 +1221,13 @@ synch_3 sram_quirk_sync (
     .clk ( clk_74a )
 );
 
+wire gpio_quirk_s;
+synch_3 gpio_quirk_sync (
+    .i   ( quirk_gpio ),
+    .o   ( gpio_quirk_s ),
+    .clk ( clk_74a )
+);
+
 // Save size for datatable (Pocket-specific: must declare size at boot)
 // MiSTer determines save_sz at runtime from bus activity; we can't do that.
 // Use safe upper bounds based on flash_1m and sram_quirk:
@@ -1229,10 +1236,11 @@ synch_3 sram_quirk_sync (
 //   default    → 65536 (covers SRAM 32K, Flash 64K, EEPROM 8K — packed)
 // bus_out FSM packs save bytes densely (1 byte per PSRAM byte), so these
 // sizes match the actual save type sizes. No 4× DWORD expansion.
-// Add 16 bytes for RTC data appended after cart save (5 words + padding)
+// Only add 16 bytes for RTC data when the game uses GPIO/RTC or force_rtc is on.
+wire        rtc_active = gpio_quirk_s | force_rtc;
 wire [31:0] save_size_bytes = sram_quirk_s ? 32'd0 :
-                              flash_1m_s   ? 32'h0002_0010 :  // 128 KB + 16
-                                             32'h0001_0010;   // 64 KB + 16
+                              flash_1m_s   ? (32'h0002_0000 + (rtc_active ? 32'd16 : 32'd0)) :
+                                             (32'h0001_0000 + (rtc_active ? 32'd16 : 32'd0));
 
 // Continuously drive datatable port A with save size.
 // Writing every cycle is intentional: the Pocket OS may write to the same
