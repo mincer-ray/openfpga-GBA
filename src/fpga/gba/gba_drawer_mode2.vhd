@@ -147,11 +147,16 @@ begin
             when CALCADDR1 =>
                vramfetch  <= CALCADDR2;
                if (wrapping = '1') then
+                  -- Use bit masking instead of mod for correct synthesis of
+                  -- signed wrapping. For power-of-2 sizes, extracting the
+                  -- lower N bits and zero-extending produces the correct
+                  -- unsigned wrap for both positive and negative coordinates
+                  -- (e.g. -1 wraps to 127 for size 128).
                   case (to_integer(screensize)) is
-                     when 0 => xxx <= xxx_pre mod 128; yyy <= yyy_pre mod 128;
-                     when 1 => xxx <= xxx_pre mod 256; yyy <= yyy_pre mod 256;
-                     when 2 => xxx <= xxx_pre mod 512; yyy <= yyy_pre mod 512;
-                     when 3 => xxx <= xxx_pre mod 1024; yyy <= yyy_pre mod 1024;
+                     when 0 => xxx <= signed("0000000000000" & std_logic_vector(xxx_pre(6 downto 0))); yyy <= signed("0000000000000" & std_logic_vector(yyy_pre(6 downto 0)));
+                     when 1 => xxx <= signed("000000000000" & std_logic_vector(xxx_pre(7 downto 0))); yyy <= signed("000000000000" & std_logic_vector(yyy_pre(7 downto 0)));
+                     when 2 => xxx <= signed("00000000000" & std_logic_vector(xxx_pre(8 downto 0))); yyy <= signed("00000000000" & std_logic_vector(yyy_pre(8 downto 0)));
+                     when 3 => xxx <= signed("0000000000" & std_logic_vector(xxx_pre(9 downto 0))); yyy <= signed("0000000000" & std_logic_vector(yyy_pre(9 downto 0)));
                      when others => null;
                   end case;
                else

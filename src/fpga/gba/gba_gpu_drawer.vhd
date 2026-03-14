@@ -900,7 +900,7 @@ begin
       tilebase             => unsigned(REG_BG3CNT_Character_Base_Block),
       screensize           => unsigned(REG_BG3CNT_Screen_Size),
       wrapping             => REG_BG3CNT_Display_Area_Overflow(REG_BG3CNT_Display_Area_Overflow'left),
-      mosaic               => REG_BG2CNT_Mosaic(REG_BG2CNT_Mosaic'left),
+      mosaic               => REG_BG3CNT_Mosaic(REG_BG3CNT_Mosaic'left),
       Mosaic_H_Size        => unsigned(REG_MOSAIC_BG_Mosaic_H_Size),
       refX                 => ref3_x,
       refY                 => ref3_y,

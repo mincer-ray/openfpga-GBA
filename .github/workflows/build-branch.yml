@@ -1,0 +1,50 @@
+name: Build
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compile
+        run: docker run --rm -v ${{ github.workspace }}:/build -w /build raetro/quartus:21.1 quartus_sh -t generate.tcl
+
+      - name: Reverse bitstream
+        run: python3 scripts/reverse_bitstream.py src/fpga/build/output_files/ap_core.rbf pkg/Cores/mincer_ray.GBA/bitstream.rbf_r
+
+      - name: Upload bitstream
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitstream
+          path: pkg/Cores/mincer_ray.GBA/bitstream.rbf_r
+
+      - name: Upload reports
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: |
+            src/fpga/build/output_files/ap_core.fit.summary
+            src/fpga/build/output_files/ap_core.sta.summary
+            src/fpga/build/output_files/ap_core.flow.rpt
+            build_output/reports/
+
+      - name: Upload output_files on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-output
+          path: src/fpga/build/output_files/
