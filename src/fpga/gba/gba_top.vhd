@@ -94,7 +94,13 @@ entity gba_top is
       KeyR                  : in     std_logic;
       KeyL                  : in     std_logic;
       -- AnalogTiltX/Y and Rumble removed (solar/gyro/tilt/rumble stripped)
-      -- debug interface          
+      -- Link cable I/O
+      serial_data_out       : out    std_logic;
+      serial_data_in        : in     std_logic;
+      serial_clk_out        : out    std_logic;
+      serial_clk_in         : in     std_logic;
+      serial_int_clock      : out    std_logic;
+      -- debug interface
       GBA_BusAddr           : in     std_logic_vector(27 downto 0);
       GBA_BusRnW            : in     std_logic;
       GBA_BusACC            : in     std_logic_vector(1 downto 0);
@@ -297,6 +303,7 @@ architecture arch of gba_top is
    signal IRP_LCDStat : std_logic;
    signal IRP_Timer   : std_logic_vector(3 downto 0);
    signal IRP_DMA     : std_logic_vector(3 downto 0);
+   signal IRP_Serial  : std_logic;
    signal IRP_Joypad  : std_logic;
    -- signal IRP_Gamepak : std_logic; -- not implemented
    
@@ -313,7 +320,20 @@ begin
    -- dummy modules
    igba_reservedregs : entity work.gba_reservedregs port map ( clk100, gb_bus);
    
-   -- gba_serial removed (no link cable on Pocket; reads return 0 = no cable)
+   igba_serial : entity work.gba_serial
+   port map
+   (
+      clk100           => clk100,
+      gb_bus           => gb_bus,
+      new_cycles       => new_cycles,
+      new_cycles_valid => new_cycles_valid,
+      IRP_Serial       => IRP_Serial,
+      serial_data_out  => serial_data_out,
+      serial_data_in   => serial_data_in,
+      serial_clk_out   => serial_clk_out,
+      serial_clk_in    => serial_clk_in,
+      serial_int_clock => serial_int_clock
+   );
 
    -- real modules
    igba_joypad : entity work.gba_joypad
@@ -880,7 +900,7 @@ begin
             if (IRP_Timer(1) = '1') then IRPFLags( 4) <= '1'; end if;
             if (IRP_Timer(2) = '1') then IRPFLags( 5) <= '1'; end if;
             if (IRP_Timer(3) = '1') then IRPFLags( 6) <= '1'; end if;
-            -- IRP_Serial removed (no link cable on Pocket)
+            if (IRP_Serial = '1')   then IRPFLags( 7) <= '1'; end if;
             if (IRP_DMA(0) = '1')   then IRPFLags( 8) <= '1'; end if;
             if (IRP_DMA(1) = '1')   then IRPFLags( 9) <= '1'; end if;
             if (IRP_DMA(2) = '1')   then IRPFLags(10) <= '1'; end if;

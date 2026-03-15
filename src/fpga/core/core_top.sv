@@ -246,15 +246,20 @@ assign cart_pin30_pwroff_reset = 1'b0;
 assign cart_tran_pin31 = 1'bz;
 assign cart_tran_pin31_dir = 1'b0;
 
-// link port is unused, set to input only to be safe
-assign port_tran_so = 1'bz;
-assign port_tran_so_dir = 1'b0;
-assign port_tran_si = 1'bz;
-assign port_tran_si_dir = 1'b0;
-assign port_tran_sck = 1'bz;
-assign port_tran_sck_dir = 1'b0;
-assign port_tran_sd = 1'bz;
-assign port_tran_sd_dir = 1'b0;
+// ---- Link Cable ----
+// GBA serial: SO always output, SI always input, SCK direction from serial_int_clock
+wire serial_data_out;
+wire serial_clk_out;
+wire serial_int_clock;
+
+assign port_tran_so     = serial_data_out;
+assign port_tran_so_dir = 1'b1;           // SO is always output
+assign port_tran_si     = 1'bz;
+assign port_tran_si_dir = 1'b0;           // SI is always input
+assign port_tran_sck     = serial_int_clock ? serial_clk_out : 1'bz;
+assign port_tran_sck_dir = serial_int_clock; // output when master, input when slave
+assign port_tran_sd     = 1'bz;
+assign port_tran_sd_dir = 1'b0;           // SD unused in Normal mode
 
 // ---- PSRAM Controller (EWRAM die 0 + Cart Saves die 1) ----
 // Memory map on cram0:
@@ -1542,6 +1547,12 @@ gba_top #(
     .KeyR                ( key_r ),
     .KeyL                ( key_l ),
     // AnalogTiltX/Y and Rumble removed (solar/gyro/tilt/rumble stripped)
+    // Link cable
+    .serial_data_out     ( serial_data_out ),
+    .serial_data_in      ( port_tran_si ),
+    .serial_clk_out      ( serial_clk_out ),
+    .serial_clk_in       ( port_tran_sck ),
+    .serial_int_clock    ( serial_int_clock ),
     // Debug (unused)
     .GBA_BusAddr         ( 28'd0 ),
     .GBA_BusRnW          ( 1'b0 ),
