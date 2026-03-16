@@ -211,9 +211,11 @@ begin
                Enable <= CNT_H_DMA_Enable;
                
                if (CNT_H_DMA_Enable = "0") then
-                  running <= '0';
-                  waiting <= '0';
-                  dmaon   <= '0';
+                  running  <= '0';
+                  waiting  <= '0';
+                  dmaon    <= '0';
+                  dma_soon <= '0';
+                  state    <= IDLE;
                end if;
             
                if (Enable = "0" and CNT_H_DMA_Enable = "1") then
