@@ -9,7 +9,7 @@
       "description": "Game Boy Advance",
       "author": "mincer_ray",
       "url": "https://github.com/mincer-ray/openfpga-GBA",
-      "version": "0.1.5",
+      "version": "0.1.6",
       "date_release": "2026-03-16"
     },
     "framework": {
