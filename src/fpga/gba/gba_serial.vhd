@@ -45,8 +45,9 @@ architecture arch of gba_serial is
    signal SIOCNT_READBACK : std_logic_vector(SIOCNT     .upper downto SIOCNT     .lower) := (others => '0');
    signal SIOCNT_written  : std_logic;
 
-   -- Readback for SIODATA32 — reflects shift register during transfer, received data after
+   -- Readback for SIODATA32/SIODATA8 — reflects shift register during transfer, received data after
    signal SIODATA32_READBACK : std_logic_vector(31 downto 0) := (others => '0');
+   signal SIODATA8_READBACK  : std_logic_vector(SIODATA8.upper downto SIODATA8.lower) := (others => '0');
    signal received_data      : std_logic_vector(31 downto 0) := (others => '0');
 
    -- Transfer state
@@ -75,7 +76,7 @@ begin
    iSIOMULTI3   : entity work.eProcReg_gba generic map (SIOMULTI3  ) port map  (clk100, gb_bus, REG_SIOMULTI3  , REG_SIOMULTI3  );
    iSIOCNT      : entity work.eProcReg_gba generic map (SIOCNT     ) port map  (clk100, gb_bus, SIOCNT_READBACK, REG_SIOCNT     , SIOCNT_written);
    iSIOMLT_SEND : entity work.eProcReg_gba generic map (SIOMLT_SEND) port map  (clk100, gb_bus, REG_SIOMLT_SEND, REG_SIOMLT_SEND);
-   iSIODATA8    : entity work.eProcReg_gba generic map (SIODATA8   ) port map  (clk100, gb_bus, REG_SIODATA8   , REG_SIODATA8   );
+   iSIODATA8    : entity work.eProcReg_gba generic map (SIODATA8   ) port map  (clk100, gb_bus, SIODATA8_READBACK, REG_SIODATA8   );
    iRCNT        : entity work.eProcReg_gba generic map (RCNT       ) port map  (clk100, gb_bus, REG_RCNT       , REG_RCNT       );
    iIR          : entity work.eProcReg_gba generic map (IR         ) port map  (clk100, gb_bus, REG_IR         , REG_IR         );
    iJOYCNT      : entity work.eProcReg_gba generic map (JOYCNT     ) port map  (clk100, gb_bus, REG_JOYCNT     , REG_JOYCNT     );
@@ -88,6 +89,9 @@ begin
 
    -- SIODATA32 readback reflects shift register during transfer, received data after
    SIODATA32_READBACK <= shift_reg when SIO_start = '1' else received_data;
+
+   -- SIODATA8 readback: low 16 bits of shift register during transfer, received data after
+   SIODATA8_READBACK <= shift_reg(15 downto 0) when SIO_start = '1' else received_data(15 downto 0);
 
    -- Expose internal clock select to top level for SCK direction control
    -- SIOCNT bit 0: 0=external clock (slave), 1=internal clock (master)
@@ -111,15 +115,15 @@ begin
             if (REG_SIOCNT(0) = '1') then
                -- ========== Internal clock (master) ==========
                -- Count GBA CPU cycles to generate SCK timing
-               -- SIOCNT[1]: 0 = 256 KHz (64 cycles/bit), 1 = 2 MHz (8 cycles/bit)
+               -- SIOCNT[1]: 0 = 256 KHz (32 cycles/half-period), 1 = 2 MHz (4 cycles/half-period)
                if (new_cycles_valid = '1') then
                   cycles <= cycles + new_cycles;
                else
-                  if ((REG_SIOCNT(1) = '0' and cycles >= 64) or (REG_SIOCNT(1) = '1' and cycles >= 8)) then
+                  if ((REG_SIOCNT(1) = '0' and cycles >= 32) or (REG_SIOCNT(1) = '1' and cycles >= 4)) then
                      if (REG_SIOCNT(1) = '1') then
-                        cycles <= cycles - 8;
+                        cycles <= cycles - 4;
                      else
-                        cycles <= cycles - 64;
+                        cycles <= cycles - 32;
                      end if;
 
                      if (int_clk_phase = '0') then
@@ -179,8 +183,9 @@ begin
          end if;
 
          -- Handle SIOCNT write: check for transfer start
+         -- Only start in Normal mode: RCNT[15]=0 (not GP/JOY Bus) and SIOCNT[13]=0 (not Multi-Player)
          if (SIOCNT_written = '1') then
-            if (REG_SIOCNT(7) = '1') then
+            if (REG_SIOCNT(7) = '1' and REG_RCNT(15) = '0' and REG_SIOCNT(13) = '0') then
                SIO_start      <= '1';
                bitcount       <= 0;
                cycles         <= (others => '0');
