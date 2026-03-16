@@ -40,13 +40,14 @@ begin
 
    -- Keep register stubs so games can read/write serial regs without hanging.
    -- Transfer logic removed to save ~140 ALMs (no link cable on Pocket).
-   iSIODATA32   : entity work.eProcReg_gba generic map (SIODATA32  ) port map  (clk100, gb_bus, REG_SIODATA32  , REG_SIODATA32  );
-   iSIOMULTI0   : entity work.eProcReg_gba generic map (SIOMULTI0  ) port map  (clk100, gb_bus, REG_SIOMULTI0  , REG_SIOMULTI0  );
-   iSIOMULTI1   : entity work.eProcReg_gba generic map (SIOMULTI1  ) port map  (clk100, gb_bus, REG_SIOMULTI1  , REG_SIOMULTI1  );
-   iSIOMULTI2   : entity work.eProcReg_gba generic map (SIOMULTI2  ) port map  (clk100, gb_bus, REG_SIOMULTI2  , REG_SIOMULTI2  );
-   iSIOMULTI3   : entity work.eProcReg_gba generic map (SIOMULTI3  ) port map  (clk100, gb_bus, REG_SIOMULTI3  , REG_SIOMULTI3  );
-   -- SIOCNT readback: bit 7 (SIO_start) always 0 = transfer complete
-   iSIOCNT      : entity work.eProcReg_gba generic map (SIOCNT     ) port map  (clk100, gb_bus, REG_SIOCNT(15 downto 8) & '0' & REG_SIOCNT(6 downto 0), REG_SIOCNT);
+   -- SIOMULTI0-3 and SIODATA32 read back 0xFFFF = no valid data (no cable).
+   iSIODATA32   : entity work.eProcReg_gba generic map (SIODATA32  ) port map  (clk100, gb_bus, x"FFFFFFFF"    , REG_SIODATA32  );
+   iSIOMULTI0   : entity work.eProcReg_gba generic map (SIOMULTI0  ) port map  (clk100, gb_bus, x"FFFF"        , REG_SIOMULTI0  );
+   iSIOMULTI1   : entity work.eProcReg_gba generic map (SIOMULTI1  ) port map  (clk100, gb_bus, x"FFFF"        , REG_SIOMULTI1  );
+   iSIOMULTI2   : entity work.eProcReg_gba generic map (SIOMULTI2  ) port map  (clk100, gb_bus, x"FFFF"        , REG_SIOMULTI2  );
+   iSIOMULTI3   : entity work.eProcReg_gba generic map (SIOMULTI3  ) port map  (clk100, gb_bus, x"FFFF"        , REG_SIOMULTI3  );
+   -- SIOCNT readback: bit 7 (SIO_start) = 0 (transfer complete), bit 6 (error) = 1 (no cable)
+   iSIOCNT      : entity work.eProcReg_gba generic map (SIOCNT     ) port map  (clk100, gb_bus, REG_SIOCNT(15 downto 8) & '0' & '1' & REG_SIOCNT(5 downto 0), REG_SIOCNT);
    iSIOMLT_SEND : entity work.eProcReg_gba generic map (SIOMLT_SEND) port map  (clk100, gb_bus, REG_SIOMLT_SEND, REG_SIOMLT_SEND);
    iSIODATA8    : entity work.eProcReg_gba generic map (SIODATA8   ) port map  (clk100, gb_bus, REG_SIODATA8   , REG_SIODATA8   );
    iRCNT        : entity work.eProcReg_gba generic map (RCNT       ) port map  (clk100, gb_bus, REG_RCNT       , REG_RCNT       );

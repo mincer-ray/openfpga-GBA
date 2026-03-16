@@ -313,7 +313,15 @@ begin
    -- dummy modules
    igba_reservedregs : entity work.gba_reservedregs port map ( clk100, gb_bus);
    
-   -- gba_serial removed (no link cable on Pocket; reads return 0 = no cable)
+   igba_serial : entity work.gba_serial
+   port map
+   (
+      clk100           => clk100,
+      gb_bus           => gb_bus,
+      new_cycles       => new_cycles,
+      new_cycles_valid => new_cycles_valid,
+      IRP_Serial       => open
+   );
 
    -- real modules
    igba_joypad : entity work.gba_joypad

@@ -812,6 +812,8 @@ set_global_assignment -name VHDL_FILE ../gba/gba_gpu_timing.vhd
 
 set_global_assignment -name VHDL_FILE ../gba/gba_joypad.vhd
 set_global_assignment -name VHDL_FILE ../gba/gba_reservedregs.vhd
+set_global_assignment -name VHDL_FILE ../gba/reggba_serial.vhd
+set_global_assignment -name VHDL_FILE ../gba/gba_serial.vhd
 set_global_assignment -name VHDL_FILE ../gba/gba_gpiodummy.vhd
 set_global_assignment -name VHDL_FILE ../gba/gba_sound.vhd
 set_global_assignment -name VHDL_FILE ../gba/gba_sound_ch1.vhd
