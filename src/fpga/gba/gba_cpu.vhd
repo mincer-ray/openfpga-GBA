@@ -1461,6 +1461,7 @@ begin
                                                                                
                            when x"C" => decode_functions := branch_and_exchange;                               -- 1100 BX Rs Perform branch(plus optional state change) to address in a register in the range 0 - 7.
                            when x"D" => decode_functions := branch_and_exchange; decode_datacomb(3) := '1';  -- 1101 BX Hs Perform branch(plus optional state change) to address in a register in the range 8 - 15.
+                           when x"E" => decode_functions := branch_and_exchange;                               -- 1110 BX Rs (edge case, same as C)
 
                            -- can't do this check, as prefetch may fetch data that could contain this
                            --when others => report "decode_data(12 downto 10) = 1 => case should never happen" severity failure;
