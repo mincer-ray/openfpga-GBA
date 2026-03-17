@@ -94,12 +94,21 @@ entity gba_top is
       KeyR                  : in     std_logic;
       KeyL                  : in     std_logic;
       -- AnalogTiltX/Y and Rumble removed (solar/gyro/tilt/rumble stripped)
-      -- Link cable I/O
+      -- Link cable I/O — Normal mode (SO/SI/SCK)
       serial_data_out       : out    std_logic;
       serial_data_in        : in     std_logic;
       serial_clk_out        : out    std_logic;
       serial_clk_in         : in     std_logic;
       serial_int_clock      : out    std_logic;
+      -- Link cable I/O — Multi-player mode (SD/SC)
+      serial_sd_out         : out    std_logic;
+      serial_sd_in          : in     std_logic;
+      serial_sd_dir         : out    std_logic;
+      serial_sc_out         : out    std_logic;
+      serial_sc_in          : in     std_logic;
+      serial_sc_dir         : out    std_logic;
+      -- Link role setting from interact menu
+      link_is_parent        : in     std_logic;
       -- debug interface
       GBA_BusAddr           : in     std_logic_vector(27 downto 0);
       GBA_BusRnW            : in     std_logic;
@@ -327,12 +336,20 @@ begin
       gb_bus           => gb_bus,
       new_cycles       => new_cycles,
       new_cycles_valid => new_cycles_valid,
+      new_exact_cycle  => new_exact_cycle,
       IRP_Serial       => IRP_Serial,
       serial_data_out  => serial_data_out,
       serial_data_in   => serial_data_in,
       serial_clk_out   => serial_clk_out,
       serial_clk_in    => serial_clk_in,
-      serial_int_clock => serial_int_clock
+      serial_int_clock => serial_int_clock,
+      serial_sd_out    => serial_sd_out,
+      serial_sd_in     => serial_sd_in,
+      serial_sd_dir    => serial_sd_dir,
+      serial_sc_out    => serial_sc_out,
+      serial_sc_in     => serial_sc_in,
+      serial_sc_dir    => serial_sc_dir,
+      link_is_parent   => link_is_parent
    );
 
    -- real modules

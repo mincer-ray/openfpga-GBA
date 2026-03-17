@@ -247,19 +247,32 @@ assign cart_tran_pin31 = 1'bz;
 assign cart_tran_pin31_dir = 1'b0;
 
 // ---- Link Cable ----
-// GBA serial: SO always output, SI always input, SCK direction from serial_int_clock
-wire serial_data_out;
-wire serial_clk_out;
-wire serial_int_clock;
+// Normal mode: SO=output, SI=input, SCK=bidirectional (master/slave)
+// Multi-player mode: SD=half-duplex UART, SC=handshake, SO/SI=terminal detect
+wire serial_data_out;   // SO pin (Normal mode)
+wire serial_clk_out;    // SCK output (Normal mode master)
+wire serial_int_clock;  // Normal mode SCK direction
+wire serial_sd_out;     // SD data output (Multi-player UART)
+wire serial_sd_dir;     // SD direction (Multi-player)
+wire serial_sc_out;     // SC handshake output (Multi-player)
+wire serial_sc_dir;     // SC direction (Multi-player)
 
+// SO pin: always output
 assign port_tran_so     = serial_data_out;
-assign port_tran_so_dir = 1'b1;           // SO is always output
+assign port_tran_so_dir = 1'b1;
+
+// SI pin: always input
 assign port_tran_si     = 1'bz;
-assign port_tran_si_dir = 1'b0;           // SI is always input
-assign port_tran_sck     = serial_int_clock ? serial_clk_out : 1'bz;
-assign port_tran_sck_dir = serial_int_clock; // output when master, input when slave
-assign port_tran_sd     = 1'bz;
-assign port_tran_sd_dir = 1'b0;           // SD unused in Normal mode
+assign port_tran_si_dir = 1'b0;
+
+// SCK/SC pin: driven by Normal mode (serial_int_clock) OR Multi-player (serial_sc_dir)
+assign port_tran_sck     = serial_sc_dir  ? serial_sc_out  :
+                           serial_int_clock ? serial_clk_out : 1'bz;
+assign port_tran_sck_dir = serial_sc_dir | serial_int_clock;
+
+// SD pin: driven by Multi-player mode UART, unused (input) in Normal mode
+assign port_tran_sd     = serial_sd_dir ? serial_sd_out : 1'bz;
+assign port_tran_sd_dir = serial_sd_dir;
 
 // ---- PSRAM Controller (EWRAM die 0 + Cart Saves die 1) ----
 // Memory map on cram0:
@@ -1267,8 +1280,9 @@ end
 
 
 // ---- Interact menu config registers (clk_74a domain) ----
-reg ff_mode = 0;    // 0 = Hold, 1 = Toggle
-reg force_rtc = 0;  // 0 = Off, 1 = Force enable RTC/GPIO
+reg ff_mode = 0;        // 0 = Hold, 1 = Toggle
+reg force_rtc = 0;      // 0 = Off, 1 = Force enable RTC/GPIO
+reg link_is_parent = 0; // 0 = Child, 1 = Parent
 
 reg [13:0] reset_counter = 0;
 wire       core_reset = (reset_counter != 0);
@@ -1280,18 +1294,22 @@ always @(posedge clk_74a) begin
     if (bridge_wr) begin
         casex (bridge_addr)
         32'hF0000000: reset_counter <= 14'd8000;  // ~108 us at 74.25 MHz
-        32'h80: ff_mode   <= bridge_wr_data[0];
-        32'h84: force_rtc <= bridge_wr_data[0];
+        32'h80: ff_mode        <= bridge_wr_data[0];
+        32'h84: force_rtc     <= bridge_wr_data[0];
+        32'h88: link_is_parent <= bridge_wr_data[0];
         endcase
     end
 end
 
-// ---- CDC: ff_mode, force_rtc → clk_sys ----
+// ---- CDC: ff_mode, force_rtc, link_is_parent → clk_sys ----
 wire ff_mode_s;
 synch_3 ff_mode_sync(ff_mode, ff_mode_s, clk_sys);
 
 wire force_rtc_s;
 synch_3 force_rtc_sync(force_rtc, force_rtc_s, clk_sys);
+
+wire link_is_parent_s;
+synch_3 link_is_parent_sync(link_is_parent, link_is_parent_s, clk_sys);
 
 // ============================================================
 // Section 4: Video Output — framebuffer + raster scan
@@ -1547,12 +1565,20 @@ gba_top #(
     .KeyR                ( key_r ),
     .KeyL                ( key_l ),
     // AnalogTiltX/Y and Rumble removed (solar/gyro/tilt/rumble stripped)
-    // Link cable
+    // Link cable — Normal mode
     .serial_data_out     ( serial_data_out ),
     .serial_data_in      ( port_tran_si ),
     .serial_clk_out      ( serial_clk_out ),
     .serial_clk_in       ( port_tran_sck ),
     .serial_int_clock    ( serial_int_clock ),
+    // Link cable — Multi-player mode
+    .serial_sd_out       ( serial_sd_out ),
+    .serial_sd_in        ( port_tran_sd ),
+    .serial_sd_dir       ( serial_sd_dir ),
+    .serial_sc_out       ( serial_sc_out ),
+    .serial_sc_in        ( port_tran_sck ),
+    .serial_sc_dir       ( serial_sc_dir ),
+    .link_is_parent      ( link_is_parent_s ),
     // Debug (unused)
     .GBA_BusAddr         ( 28'd0 ),
     .GBA_BusRnW          ( 1'b0 ),
