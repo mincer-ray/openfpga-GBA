@@ -1,5 +1,7 @@
 # GBA for Analogue Pocket
 
+[![Latest Release](https://img.shields.io/github/v/tag/mincer-ray/openfpga-GBA?label=latest)](https://github.com/mincer-ray/openfpga-GBA/releases/latest) [![Downloads](https://img.shields.io/github/downloads/mincer-ray/openfpga-GBA/total)](https://github.com/mincer-ray/openfpga-GBA/releases) ![Platform](https://img.shields.io/badge/platform-Analogue%20Pocket-blue)
+
 LLM assisted port of [MiSTer GBA core](https://github.com/MiSTer-devel/GBA_MiSTer)
 
 ## Features
