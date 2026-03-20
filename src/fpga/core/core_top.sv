@@ -830,8 +830,9 @@ wire [41:0] rtc_savedtime_out;
 wire        rtc_inuse;
 
 // Save size in clk_sys domain (cart save only, excludes RTC bytes)
-wire [23:0] save_size_sys = quirk_sram    ? 24'd0 :
-                            det_flash_1m  ? 24'h02_0000 :  // 128 KB
+// sram_quirk games may still use EEPROM for saves (e.g. Dragon Ball Z titles),
+// so use the default 64 KB to ensure EEPROM data is persisted.
+wire [23:0] save_size_sys = det_flash_1m  ? 24'h02_0000 :  // 128 KB
                                             24'h01_0000;   // 64 KB
 
 // RTC data captured during save loading
@@ -1214,13 +1215,6 @@ synch_3 flash_1m_sync (
     .clk ( clk_74a )
 );
 
-wire sram_quirk_s;
-synch_3 sram_quirk_sync (
-    .i   ( quirk_sram ),
-    .o   ( sram_quirk_s ),
-    .clk ( clk_74a )
-);
-
 wire gpio_quirk_s;
 synch_3 gpio_quirk_sync (
     .i   ( quirk_gpio ),
@@ -1230,17 +1224,17 @@ synch_3 gpio_quirk_sync (
 
 // Save size for datatable (Pocket-specific: must declare size at boot)
 // MiSTer determines save_sz at runtime from bus activity; we can't do that.
-// Use safe upper bounds based on flash_1m and sram_quirk:
-//   sram_quirk → 0 (game uses SRAM as anti-piracy, no real save)
+// Use safe upper bounds based on flash_1m:
 //   flash_1m   → 131072 (128K Flash, packed 1:1 in PSRAM die 1)
 //   default    → 65536 (covers SRAM 32K, Flash 64K, EEPROM 8K — packed)
+// sram_quirk games still get 64 KB: the quirk only disables SRAM/Flash at 0xE,
+// but many (e.g. Dragon Ball Z titles) use EEPROM at 0xD for actual saves.
 // bus_out FSM packs save bytes densely (1 byte per PSRAM byte), so these
 // sizes match the actual save type sizes. No 4× DWORD expansion.
 // Only add 16 bytes for RTC data when the game uses GPIO/RTC or force_rtc is on.
 wire        rtc_active = gpio_quirk_s | force_rtc;
-wire [31:0] save_size_bytes = sram_quirk_s ? 32'd0 :
-                              flash_1m_s   ? (32'h0002_0000 + (rtc_active ? 32'd16 : 32'd0)) :
-                                             (32'h0001_0000 + (rtc_active ? 32'd16 : 32'd0));
+wire [31:0] save_size_bytes = flash_1m_s ? (32'h0002_0000 + (rtc_active ? 32'd16 : 32'd0)) :
+                                           (32'h0001_0000 + (rtc_active ? 32'd16 : 32'd0));
 
 // Continuously drive datatable port A with save size.
 // Writing every cycle is intentional: the Pocket OS may write to the same
