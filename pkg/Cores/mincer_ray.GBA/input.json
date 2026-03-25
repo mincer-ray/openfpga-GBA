@@ -11,7 +11,8 @@
           { "id": 3, "name": "Select", "key": "pad_btn_select" },
           { "id": 4, "name": "L", "key": "pad_trig_l" },
           { "id": 5, "name": "R", "key": "pad_trig_r" },
-          { "id": 6, "name": "Fast Forward", "key": "pad_btn_y" }
+          { "id": 6, "name": "Fast Forward", "key": "pad_btn_y" },
+          { "id": 7, "name": "Turbo", "key": "pad_btn_x" }
         ]
       }
     ]

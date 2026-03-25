@@ -458,7 +458,63 @@ always @(posedge clk_sys) begin
     end
 end
 
-// PSRAM mux: priority encode loader > unloader > bus_out
+// ---- PSRAM die 1 clear (no-save boot) ----
+// PSRAM retains data across FPGA reconfiguration. When no save file is
+// loaded (first boot of a game), stale data from a previous session could
+// appear as a valid save. Clear die 1 to 0xFF after boot if no save arrived.
+
+reg save_data_received;
+always @(posedge clk_sys) begin
+    if (~pll_core_locked)
+        save_data_received <= 0;
+    else if (save_loader_wr)
+        save_data_received <= 1;
+end
+
+localparam CLR_IDLE = 2'd0, CLR_WR = 2'd1, CLR_WAIT = 2'd2;
+reg  [1:0]  clr_state;
+reg  [16:0] clr_addr;    // [16]=done flag, [15:0]=word addr (128 KB = 64K words)
+reg         clr_wr;       // 1-cycle write pulse
+reg         clr_guard;    // 1-cycle guard for psram_busy propagation
+wire        save_clear_done = clr_addr[16];
+wire        save_mem_ready  = save_data_received | save_clear_done;
+
+always @(posedge clk_sys) begin
+    clr_wr <= 0;
+    if (~pll_core_locked) begin
+        clr_state <= CLR_IDLE;
+        clr_addr  <= 0;
+        clr_guard <= 0;
+    end else begin
+        case (clr_state)
+            CLR_IDLE: begin
+                if (dataslot_allcomplete_s && !save_data_received && !save_clear_done)
+                    clr_state <= CLR_WR;
+            end
+            CLR_WR: begin
+                clr_wr    <= 1;
+                clr_guard <= 1;
+                clr_state <= CLR_WAIT;
+            end
+            CLR_WAIT: begin
+                if (clr_guard) begin
+                    clr_guard <= 0;
+                end else if (!psram_busy) begin
+                    if (clr_addr[15:0] == 16'hFFFF) begin
+                        clr_addr  <= clr_addr + 1;  // sets [16] = done
+                        clr_state <= CLR_IDLE;
+                    end else begin
+                        clr_addr  <= clr_addr + 1;
+                        clr_state <= CLR_WR;
+                    end
+                end
+            end
+            default: clr_state <= CLR_IDLE;
+        endcase
+    end
+end
+
+// PSRAM mux: priority encode loader > clear > unloader > bus_out
 always @(*) begin
     if (save_loader_wr) begin
         // Save loader write → die 1
@@ -467,6 +523,15 @@ always @(*) begin
         psram_bank_sel   = 1;  // die 1
         psram_addr       = save_loader_addr[21:1]; // byte→word addr (drop bit 0)
         psram_data_in    = save_loader_data;
+        psram_write_high = 1;
+        psram_write_low  = 1;
+    end else if (clr_wr) begin
+        // Save clear write → die 1 (no-save boot)
+        psram_write_en   = 1;
+        psram_read_en    = 0;
+        psram_bank_sel   = 1;  // die 1
+        psram_addr       = {6'b0, clr_addr[15:0]}; // word addr
+        psram_data_in    = 16'hFFFF;
         psram_write_high = 1;
         psram_write_low  = 1;
     end else if (save_unloader_rd && !save_unload_pending && !save_unload_is_rtc) begin
@@ -848,8 +913,9 @@ wire [41:0] rtc_savedtime_out;
 wire        rtc_inuse;
 
 // Save size in clk_sys domain (cart save only, excludes RTC bytes)
-wire [23:0] save_size_sys = quirk_sram    ? 24'd0 :
-                            det_flash_1m  ? 24'h02_0000 :  // 128 KB
+// sram_quirk games may still use EEPROM for saves (e.g. Dragon Ball Z titles),
+// so use the default 64 KB to ensure EEPROM data is persisted.
+wire [23:0] save_size_sys = det_flash_1m  ? 24'h02_0000 :  // 128 KB
                                             24'h01_0000;   // 64 KB
 
 // RTC data captured during save loading
@@ -933,7 +999,7 @@ synch_3 s_reset_n(reset_n, reset_n_s, clk_sys);
 wire core_reset_s;
 synch_3 s_core_reset(core_reset, core_reset_s, clk_sys);
 
-wire reset_gba = ~pll_core_locked | ~dataslot_allcomplete_s | ~reset_n_s | core_reset_s;
+wire reset_gba = ~pll_core_locked | ~dataslot_allcomplete_s | ~reset_n_s | core_reset_s | ~save_mem_ready;
 
 // ---- BIOS Loading via data_loader → gba_top internal BRAM ----
 // BIOS (16 KB) loads from data slot 4 at address 0x3xxxxxxx
@@ -1232,13 +1298,6 @@ synch_3 flash_1m_sync (
     .clk ( clk_74a )
 );
 
-wire sram_quirk_s;
-synch_3 sram_quirk_sync (
-    .i   ( quirk_sram ),
-    .o   ( sram_quirk_s ),
-    .clk ( clk_74a )
-);
-
 wire gpio_quirk_s;
 synch_3 gpio_quirk_sync (
     .i   ( quirk_gpio ),
@@ -1248,17 +1307,17 @@ synch_3 gpio_quirk_sync (
 
 // Save size for datatable (Pocket-specific: must declare size at boot)
 // MiSTer determines save_sz at runtime from bus activity; we can't do that.
-// Use safe upper bounds based on flash_1m and sram_quirk:
-//   sram_quirk → 0 (game uses SRAM as anti-piracy, no real save)
+// Use safe upper bounds based on flash_1m:
 //   flash_1m   → 131072 (128K Flash, packed 1:1 in PSRAM die 1)
 //   default    → 65536 (covers SRAM 32K, Flash 64K, EEPROM 8K — packed)
+// sram_quirk games still get 64 KB: the quirk only disables SRAM/Flash at 0xE,
+// but many (e.g. Dragon Ball Z titles) use EEPROM at 0xD for actual saves.
 // bus_out FSM packs save bytes densely (1 byte per PSRAM byte), so these
 // sizes match the actual save type sizes. No 4× DWORD expansion.
 // Only add 16 bytes for RTC data when the game uses GPIO/RTC or force_rtc is on.
 wire        rtc_active = gpio_quirk_s | force_rtc;
-wire [31:0] save_size_bytes = sram_quirk_s ? 32'd0 :
-                              flash_1m_s   ? (32'h0002_0000 + (rtc_active ? 32'd16 : 32'd0)) :
-                                             (32'h0001_0000 + (rtc_active ? 32'd16 : 32'd0));
+wire [31:0] save_size_bytes = flash_1m_s ? (32'h0002_0000 + (rtc_active ? 32'd16 : 32'd0)) :
+                                           (32'h0001_0000 + (rtc_active ? 32'd16 : 32'd0));
 
 // Continuously drive datatable port A with save size.
 // Writing every cycle is intentional: the Pocket OS may write to the same
@@ -1280,9 +1339,10 @@ end
 
 
 // ---- Interact menu config registers (clk_74a domain) ----
-reg ff_mode = 0;        // 0 = Hold, 1 = Toggle
-reg force_rtc = 0;      // 0 = Off, 1 = Force enable RTC/GPIO
-reg link_is_parent = 0; // 0 = Child, 1 = Parent
+reg [1:0] ff_mode = 0;    // 0 = Hold, 1 = Toggle, 2 = Disabled
+reg force_rtc = 0;        // 0 = Off, 1 = Force enable RTC/GPIO
+reg [1:0] turbo_mode = 0; // 0 = Disabled, 1 = Turbo A, 2 = Turbo B
+reg link_is_parent = 0;   // 0 = Child, 1 = Parent
 
 reg [13:0] reset_counter = 0;
 wire       core_reset = (reset_counter != 0);
@@ -1294,19 +1354,23 @@ always @(posedge clk_74a) begin
     if (bridge_wr) begin
         casex (bridge_addr)
         32'hF0000000: reset_counter <= 14'd8000;  // ~108 us at 74.25 MHz
-        32'h80: ff_mode        <= bridge_wr_data[0];
-        32'h84: force_rtc     <= bridge_wr_data[0];
-        32'h88: link_is_parent <= bridge_wr_data[0];
+        32'h80: ff_mode        <= bridge_wr_data[1:0];
+        32'h84: force_rtc      <= bridge_wr_data[0];
+        32'h88: turbo_mode     <= bridge_wr_data[1:0];
+        32'h8C: link_is_parent <= bridge_wr_data[0];
         endcase
     end
 end
 
-// ---- CDC: ff_mode, force_rtc, link_is_parent → clk_sys ----
-wire ff_mode_s;
-synch_3 ff_mode_sync(ff_mode, ff_mode_s, clk_sys);
+// ---- CDC: ff_mode, force_rtc, turbo_mode, link_is_parent → clk_sys ----
+wire [1:0] ff_mode_s;
+synch_3 #(.WIDTH(2)) ff_mode_sync(ff_mode, ff_mode_s, clk_sys);
 
 wire force_rtc_s;
 synch_3 force_rtc_sync(force_rtc, force_rtc_s, clk_sys);
+
+wire [1:0] turbo_mode_s;
+synch_3 #(.WIDTH(2)) turbo_mode_sync(turbo_mode, turbo_mode_s, clk_sys);
 
 wire link_is_parent_s;
 synch_3 link_is_parent_sync(link_is_parent, link_is_parent_s, clk_sys);
@@ -1384,9 +1448,22 @@ synch_3 #(.WIDTH(32)) cont1_sync (
 
 // GBA buttons — active-high (1 = pressed), matching gba_top.vhd Key* ports
 // Pocket cont1_key is also active-high, so no inversion needed
-// Pocket bitmap: [0]=up [1]=down [2]=left [3]=right [4]=A [5]=B [8]=L1 [9]=R1 [14]=sel [15]=start
-wire key_a      = cont1_key_s[4];
-wire key_b      = cont1_key_s[5];
+// Pocket bitmap: [0]=up [1]=down [2]=left [3]=right [4]=A [5]=B [6]=X [7]=Y [8]=L1 [9]=R1 [14]=sel [15]=start
+
+// X button (bit 6) — Turbo, not a GBA button
+wire x_button = cont1_key_s[6];
+
+// Turbo: free-running counter, bit[20] toggles at ~48 Hz → ~24 presses/sec
+reg [20:0] turbo_counter = 0;
+always @(posedge clk_sys)
+    turbo_counter <= turbo_counter + 1'd1;
+
+wire turbo_pulse = turbo_counter[20];
+wire turbo_a = (turbo_mode_s == 2'd1) && x_button && turbo_pulse;
+wire turbo_b = (turbo_mode_s == 2'd2) && x_button && turbo_pulse;
+
+wire key_a      = cont1_key_s[4] | turbo_a;
+wire key_b      = cont1_key_s[5] | turbo_b;
 wire key_select = cont1_key_s[14];
 wire key_start  = cont1_key_s[15];
 wire key_up     = cont1_key_s[0];
@@ -1399,6 +1476,7 @@ wire key_l      = cont1_key_s[8];
 // Y button (bit 7) — Fast Forward, not a GBA button
 // Hold mode: active while button pressed
 // Toggle mode: press toggles on/off
+// Disabled mode: fast forward button does nothing
 wire ff_button = cont1_key_s[7];
 
 reg ff_button_prev = 0;
@@ -1411,7 +1489,9 @@ always @(posedge clk_sys) begin
         ff_toggle_state <= ~ff_toggle_state;
 end
 
-wire fast_forward = ff_mode_s ? ff_toggle_state : ff_button;
+wire fast_forward = (ff_mode_s == 2'd2) ? 1'b0 :            // Disabled
+                    (ff_mode_s == 2'd1) ? ff_toggle_state :  // Toggle
+                    ff_button;                               // Hold (default)
 
 
 // ============================================================

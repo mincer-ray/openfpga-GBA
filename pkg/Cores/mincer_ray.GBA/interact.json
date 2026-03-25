@@ -27,6 +27,34 @@
           {
             "name": "Toggle",
             "value": 1
+          },
+          {
+            "name": "Disabled",
+            "value": 2
+          }
+        ]
+      },
+      {
+        "name": "Turbo",
+        "id": 25,
+        "type": "list",
+        "enabled": true,
+        "address": "0x88",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "Disabled",
+            "value": 0
+          },
+          {
+            "name": "Turbo A Button",
+            "value": 1
+          },
+          {
+            "name": "Turbo B Button",
+            "value": 2
           }
         ]
       },
@@ -55,7 +83,7 @@
         "id": 40,
         "type": "list",
         "enabled": true,
-        "address": "0x88",
+        "address": "0x8C",
         "persist": true,
         "writeonly": true,
         "defaultval": 0,
