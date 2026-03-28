@@ -104,9 +104,11 @@ entity gba_top is
       -- display data
       pixel_out_x           : buffer integer range 0 to 239;
       pixel_out_y           : buffer integer range 0 to 159;
-      pixel_out_addr        : buffer integer range 0 to 38399;       -- address for framebuffer 
-      pixel_out_data        : buffer std_logic_vector(17 downto 0);  -- RGB data for framebuffer 
+      pixel_out_addr        : buffer integer range 0 to 38399;       -- address for framebuffer
+      pixel_out_data        : buffer std_logic_vector(17 downto 0);  -- RGB data for framebuffer
       pixel_out_we          : buffer std_logic;                      -- new pixel for framebuffer
+      -- GBA STOP mode (deep sleep — LCD off, only keypad can wake)
+      stop_mode             : buffer std_logic := '0';
       -- sound                             
       sound_out_left        : out    std_logic_vector(15 downto 0) := (others => '0');
       sound_out_right       : out    std_logic_vector(15 downto 0) := (others => '0');
@@ -239,8 +241,10 @@ architecture arch of gba_top is
    signal gba_step : std_logic := '0';
    signal cpu_done : std_logic;
    signal cpu_stepsleft : unsigned(7 downto 0) := (others => '0');
-   signal cpu_IRP  : std_logic := '0';
-   signal new_halt : std_logic := '0';
+   signal cpu_IRP      : std_logic := '0';
+   signal new_halt     : std_logic := '0';
+   signal cpu_halt_out      : std_logic;
+   signal cpu_halt_out_prev : std_logic := '0';
    
    signal PC_in_BIOS      : std_logic;
    signal lastread        : std_logic_vector(31 downto 0);
@@ -843,8 +847,9 @@ begin
       timerdebug2      => timerdebug2,
       timerdebug3      => timerdebug3,
       
-      debug_cpu_pc     => debug_cpu_pc,   
-      debug_cpu_mixed  => debug_cpu_mixed
+      debug_cpu_pc     => debug_cpu_pc,
+      debug_cpu_mixed  => debug_cpu_mixed,
+      halt_out         => cpu_halt_out
    );
    
    new_cycles       <= x"01"           when GBA_cputurbo = '1' or DEBUG_NOCPU = '1' or vram_cycle = '1' else new_cycles_cpu      ;
@@ -872,8 +877,10 @@ begin
          gbaon <= GBA_on;
    
          if (reset = '1') then -- reset
-   
-            IRPFLags <= SAVESTATE_IRP;
+
+            IRPFLags          <= SAVESTATE_IRP;
+            stop_mode         <= '0';
+            cpu_halt_out_prev <= '0';
    
          elsif (gbaon = '1') then
          
@@ -897,15 +904,29 @@ begin
             --if (IRP_Gamepak = '1')  then IRPFLags(13) <= '1'; end if; -- not implemented
             
             cpu_IRP <= '0';
-            if ((IRPFLags and REG_IRP_IE) /= x"0000" and REG_IME(0) = '1') then
-               cpu_IRP <= '1';
+            if (stop_mode = '1') then
+               -- In STOP mode, only keypad interrupt (bit 12) can wake the CPU
+               if ((IRPFLags(12) and REG_IRP_IE(12)) = '1' and REG_IME(0) = '1') then
+                  cpu_IRP <= '1';
+               end if;
+            else
+               if ((IRPFLags and REG_IRP_IE) /= x"0000" and REG_IME(0) = '1') then
+                  cpu_IRP <= '1';
+               end if;
             end if;
-            
+
+            cpu_halt_out_prev <= cpu_halt_out;
+
             new_halt <= '0';
             if (REG_HALTCNT_written = '1' and loading_savestate = '0') then
-               if (REG_HALTCNT(15) = '0') then
-                  new_halt <= '1';
+               new_halt <= '1';
+               if (REG_HALTCNT(15) = '1') then
+                  stop_mode <= '1';
                end if;
+            end if;
+            -- Clear stop_mode on falling edge of halt (CPU was halted, then woke)
+            if (stop_mode = '1' and cpu_halt_out_prev = '1' and cpu_halt_out = '0') then
+               stop_mode <= '0';
             end if;
             
          end if;

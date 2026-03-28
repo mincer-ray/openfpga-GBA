@@ -1364,6 +1364,10 @@ assign video_rgb_clock_90 = clk_vid_90;
 wire [15:0] pixel_out_addr;
 wire [17:0] pixel_out_data;
 wire        pixel_out_we;
+wire        gba_stop_mode;
+
+// When GBA is in STOP mode (deep sleep), force black screen to simulate LCD off
+wire [17:0] pixel_data_final = gba_stop_mode ? 18'd0 : pixel_out_data;
 
 video_adapter video_out (
     .clk_sys    ( clk_sys ),
@@ -1371,7 +1375,7 @@ video_adapter video_out (
     .reset      ( ~pll_core_locked ),
 
     .pixel_addr ( pixel_out_addr ),
-    .pixel_data ( pixel_out_data ),
+    .pixel_data ( pixel_data_final ),
     .pixel_we   ( pixel_out_we ),
 
     .video_rgb  ( video_rgb ),
@@ -1402,8 +1406,8 @@ audio_mixer #(
     .vol_att    ( 4'd0 ),
     .mix        ( 2'd0 ),
     .is_signed  ( 1'b1 ),
-    .core_l     ( fast_forward ? 16'h0 : sound_out_left ),
-    .core_r     ( fast_forward ? 16'h0 : sound_out_right ),
+    .core_l     ( (fast_forward || gba_stop_mode) ? 16'h0 : sound_out_left ),
+    .core_r     ( (fast_forward || gba_stop_mode) ? 16'h0 : sound_out_right ),
     .audio_mclk ( audio_mclk ),
     .audio_lrck ( audio_lrck ),
     .audio_dac  ( audio_dac )
@@ -1635,6 +1639,7 @@ gba_top #(
     .pixel_out_addr      ( pixel_out_addr ),
     .pixel_out_data      ( pixel_out_data ),
     .pixel_out_we        ( pixel_out_we ),
+    .stop_mode           ( gba_stop_mode ),
     // Audio
     .sound_out_left      ( sound_out_left ),
     .sound_out_right     ( sound_out_right ),

@@ -72,7 +72,8 @@ entity gba_cpu is
 -- synthesis translate_on     
 	  
       debug_cpu_pc     : out   std_logic_vector(31 downto 0);
-      debug_cpu_mixed  : out   std_logic_vector(31 downto 0)
+      debug_cpu_mixed  : out   std_logic_vector(31 downto 0);
+      halt_out         : out   std_logic
    );
 end entity;
 
@@ -81,9 +82,9 @@ architecture arch of gba_cpu is
    constant gbbusadr_bits : integer := work.pProc_bus_gba.proc_busadr;
 
    -- ####################################
-   -- ARM processor regs and states 
+   -- ARM processor regs and states
    -- ####################################
-    
+
    constant CPUMODE_USER       : std_logic_vector(3 downto 0) := x"0";
    constant CPUMODE_FIQ        : std_logic_vector(3 downto 0) := x"1";
    constant CPUMODE_IRQ        : std_logic_vector(3 downto 0) := x"2";
@@ -91,7 +92,7 @@ architecture arch of gba_cpu is
    constant CPUMODE_ABORT      : std_logic_vector(3 downto 0) := x"7";
    constant CPUMODE_UNDEFINED  : std_logic_vector(3 downto 0) := x"B";
    constant CPUMODE_SYSTEM     : std_logic_vector(3 downto 0) := x"F";
-   
+
    signal thumbmode        : std_logic := '0';
    signal halt             : std_logic := '0';
          
@@ -570,7 +571,8 @@ architecture arch of gba_cpu is
 begin  
 
    debug_cpu_pc <= std_logic_vector(PC);
-   
+   halt_out <= halt;
+
    debug_cpu_mixed(0) <= halt;           
    debug_cpu_mixed(1) <= Flag_Zero;     
    debug_cpu_mixed(2) <= Flag_Carry;     
