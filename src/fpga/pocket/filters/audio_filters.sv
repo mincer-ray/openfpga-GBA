@@ -48,18 +48,24 @@ module audio_filters
 
     reg sample_rate = 0; //0 - 48KHz, 1 - 96KHz
 
+    localparam integer SAMPLE_DIV_48 = CLK_RATE / 48000; // 256 @ 12.288MHz
+    localparam integer SAMPLE_DIV_96 = CLK_RATE / 96000; // 128 @ 12.288MHz
+
+    reg [8:0] sample_div = 0;
+    wire [8:0] sample_reload = sample_rate ? (SAMPLE_DIV_96 - 1) : (SAMPLE_DIV_48 - 1);
+
     reg sample_ce;
-    always @(posedge clk) begin
-        reg [8:0] div = 0;
-        reg [1:0] add = 0;
-
-        div <= div + add;
-        if(!div) begin
-            div <= 2'd1 << sample_rate;
-            add <= 2'd1 << sample_rate;
+    always @(posedge clk, posedge reset) begin
+        if (reset) begin
+            sample_div <= 0;
+            sample_ce  <= 1'b0;
+        end else if (sample_div == 0) begin
+            sample_div <= sample_reload;
+            sample_ce  <= 1'b1;
+        end else begin
+            sample_div <= sample_div - 1'b1;
+            sample_ce  <= 1'b0;
         end
-
-        sample_ce <= !div;
     end
 
     // CDC: 2-register stability check for clock domain crossing
@@ -124,6 +130,7 @@ module audio_filters
                );
 
     wire [15:0] audio_l_pre;
+    wire [15:0] audio_l_mix;
     audio_mix audmix_l
               (
                   .clk         ( clk         ),
@@ -135,10 +142,11 @@ module audio_filters
                   .pre_in      ( audio_r_pre ),
 
                   .pre_out     ( audio_l_pre ),
-                  .out         ( audio_l     )
+                  .out         ( audio_l_mix )
               );
 
     wire [15:0] audio_r_pre;
+    wire [15:0] audio_r_mix;
     audio_mix audmix_r
               (
                   .clk         ( clk         ),
@@ -150,7 +158,10 @@ module audio_filters
                   .pre_in      ( audio_l_pre ),
 
                   .pre_out     ( audio_r_pre ),
-                  .out         ( audio_r     )
+                  .out         ( audio_r_mix )
               );
+
+    assign audio_l = audio_l_mix;
+    assign audio_r = audio_r_mix;
 
 endmodule
