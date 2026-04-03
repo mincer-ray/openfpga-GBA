@@ -1382,7 +1382,6 @@ assign video_rgb_clock_90 = clk_vid_90;
 wire [15:0] pixel_out_addr;
 wire [17:0] pixel_out_data;
 wire        pixel_out_we;
-wire [95:0] link_debug_overlay;
 
 video_adapter video_out (
     .clk_sys    ( clk_sys ),
@@ -1392,7 +1391,6 @@ video_adapter video_out (
     .pixel_addr ( pixel_out_addr ),
     .pixel_data ( pixel_out_data ),
     .pixel_we   ( pixel_out_we ),
-    .debug_overlay ( link_debug_overlay ),
 
     .video_rgb  ( video_rgb ),
     .video_de   ( video_de ),
@@ -1674,7 +1672,7 @@ gba_top #(
     // Debug outputs
     .debug_cpu_pc        (),
     .debug_cpu_mixed     (),
-    .debug_irq           ( link_debug_overlay ),
+    .debug_irq           (),
     .debug_dma           (),
     .debug_mem           ()
 );

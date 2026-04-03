@@ -126,7 +126,7 @@ entity gba_top is
       -- debug                    
       debug_cpu_pc          : out    std_logic_vector(31 downto 0);
       debug_cpu_mixed       : out    std_logic_vector(31 downto 0);
-      debug_irq             : out    std_logic_vector(95 downto 0);
+      debug_irq             : out    std_logic_vector(31 downto 0);
       debug_dma             : out    std_logic_vector(31 downto 0);
       debug_mem             : out    std_logic_vector(31 downto 0)
    );
@@ -320,10 +320,6 @@ architecture arch of gba_top is
    signal new_exact_cycle : std_logic := '0';
    signal CyclesVsync     : unsigned(31 downto 0) := (others => '0');
    signal bench_slow      : integer range 0 to 1685375 := 0;
-   signal serial_debug_link : std_logic_vector(95 downto 0) := (others => '0');
-   signal sticky_serial_if_ack_seen : std_logic := '0';
-   
-   
 begin 
 
    -- dummy modules
@@ -338,7 +334,6 @@ begin
       new_cycles_valid => new_cycles_valid,
       new_exact_cycle  => new_exact_cycle,
       IRP_Serial       => IRP_Serial,
-      debug_link       => serial_debug_link,
       serial_data_out  => serial_data_out,
       serial_data_in   => serial_data_in,
       serial_clk_out   => serial_clk_out,
@@ -889,15 +884,9 @@ begin
 
    iSAVESTATE_IRP   : entity work.eProcReg_gba generic map (REG_SAVESTATE_IRP  ) port map (clk100, savestate_bus, IRPFLags , SAVESTATE_IRP);
 
-   -- Reuse the unused upper nibble of debug row 2 for CPU-visible serial IRQ
-   -- state. The rightmost four boxes in that row decode as:
-   -- IF7, IE7, IME, serial-IF-ack-seen.
-   debug_irq <= serial_debug_link(95 downto 48) &
-                sticky_serial_if_ack_seen &
-                REG_IME(0) &
-                REG_IRP_IE(7) &
-                IRPFLags(7) &
-                serial_debug_link(43 downto 0);
+   debug_irq(15 downto 0) <= IRPFLags;
+   debug_irq(16) <= REG_IME(0);
+   debug_irq(31 downto 17) <= (others => '0');
 
    ------------- interrupt
    process (clk100)
@@ -907,17 +896,13 @@ begin
          gbaon <= GBA_on;
    
          if (reset = '1') then -- reset
-   
+       
             IRPFLags <= SAVESTATE_IRP;
-            sticky_serial_if_ack_seen <= '0';
-   
+       
          elsif (gbaon = '1') then
          
             if (IF_written = '1') then
                IRPFLags <= IRPFLags and not REG_IRP_IF;
-               if (REG_IRP_IF(23) = '1') then
-                  sticky_serial_if_ack_seen <= '1';
-               end if;
             end if;
       
             if (IRP_VBlank = '1')   then IRPFLags( 0) <= '1'; end if;

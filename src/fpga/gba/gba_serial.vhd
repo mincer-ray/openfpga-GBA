@@ -16,7 +16,6 @@ entity gba_serial is
       new_exact_cycle   : in  std_logic;
 
       IRP_Serial        : out std_logic := '0';
-      debug_link        : out std_logic_vector(95 downto 0) := (others => '0');
 
       -- Normal mode I/O (SO/SI/SCK pins)
       serial_data_out   : out std_logic := '1';  -- SO pin
@@ -63,15 +62,6 @@ architecture arch of gba_serial is
       return child_word & parent_word;
    end function;
 
-   function sat_inc4(value : unsigned(3 downto 0))
-      return unsigned is
-   begin
-      if (value = "1111") then
-         return value;
-      end if;
-      return value + 1;
-   end function;
-
    signal REG_SIODATA32   : std_logic_vector(SIODATA32  .upper downto SIODATA32  .lower) := (others => '0');
    signal REG_SIOMULTI0   : std_logic_vector(SIOMULTI0  .upper downto SIOMULTI0  .lower) := (others => '0');
    signal REG_SIOMULTI1   : std_logic_vector(SIOMULTI1  .upper downto SIOMULTI1  .lower) := (others => '0');
@@ -112,6 +102,7 @@ architecture arch of gba_serial is
    signal SIODATA8_written      : std_logic;
    signal SIOMLT_SEND_written   : std_logic;
    signal SIO12A_word_written   : std_logic;
+   signal multi_local_send_word : std_logic_vector(15 downto 0);
 
    -- Normal mode transfer state
    signal SIO_start       : std_logic := '0';
@@ -160,44 +151,6 @@ architecture arch of gba_serial is
    signal multi_id_valid : std_logic := '0';
    signal multi_si_seen_low : std_logic := '0';
    signal multi_child_finish_ok : std_logic;
-   signal sticky_sc_fall_seen : std_logic := '0';
-   signal sticky_sc_low_seen : std_logic := '0';
-   signal sticky_sd_low_seen : std_logic := '0';
-   signal sticky_si_low_seen : std_logic := '0';
-   signal sticky_non_idle_seen : std_logic := '0';
-   signal sticky_child_wait_seen : std_logic := '0';
-   signal sticky_child_rx_seen : std_logic := '0';
-   signal sticky_child_tx_seen : std_logic := '0';
-   signal sticky_parent_seen : std_logic := '0';
-   signal sticky_error_seen : std_logic := '0';
-   signal sticky_parent_tx_seen : std_logic := '0';
-   signal sticky_parent_wait_seen : std_logic := '0';
-   signal sticky_parent_rx_seen : std_logic := '0';
-   signal sticky_parent_complete_seen : std_logic := '0';
-   signal sticky_child_reply_delay_seen : std_logic := '0';
-   signal sticky_err_parent_timeout_seen : std_logic := '0';
-   signal sticky_err_rx_stop_seen : std_logic := '0';
-   signal sticky_err_child_finish_seen : std_logic := '0';
-   signal sticky_id_valid_seen : std_logic := '0';
-   signal sticky_irq_raised_seen : std_logic := '0';
-   signal sticky_send_write_seen : std_logic := '0';
-   signal sticky_siomulti0_write_seen : std_logic := '0';
-   signal sticky_siomulti1_write_seen : std_logic := '0';
-   signal debug_last_parent_word : word16_t := (others => '0');
-   signal debug_last_child_word : word16_t := (others => '0');
-   signal debug_last_multi0_word : word16_t := (others => '0');
-   signal debug_last_multi1_word : word16_t := (others => '0');
-   signal debug_start_count : unsigned(3 downto 0) := (others => '0');
-   signal debug_sc_fall_count : unsigned(3 downto 0) := (others => '0');
-   signal debug_sc_rise_count : unsigned(3 downto 0) := (others => '0');
-   signal debug_child_complete_count : unsigned(3 downto 0) := (others => '0');
-   signal debug_child_complete_total : unsigned(15 downto 0) := (others => '0');
-   signal debug_row0 : std_logic_vector(15 downto 0);
-   signal debug_row1 : std_logic_vector(15 downto 0);
-   signal debug_row2 : std_logic_vector(15 downto 0);
-   signal debug_row3 : std_logic_vector(15 downto 0);
-   signal debug_row4 : std_logic_vector(15 downto 0);
-   signal debug_row5 : std_logic_vector(15 downto 0);
 
    -- SC input synchronizer for child to detect parent's SC going LOW
    signal sc_sync         : std_logic_vector(2 downto 0) := (others => '1');
@@ -279,6 +232,7 @@ begin
    SIO12A_word_written <= '1' when SIOCNT_SEND_written = '1' and
                                    (SIOCNT_SEND_bEna(2) = '1' or SIOCNT_SEND_bEna(3) = '1') else
                           '0';
+   multi_local_send_word <= REG_SIOCNT_SEND(31 downto 16) when SIO12A_word_written = '1' else REG_SIOMLT_SEND;
 
    multi_sc_state <= '0' when multi_role_valid = '1' and multi_is_parent = '1' and multi_active = '1' else
                      '1' when multi_role_valid = '1' and multi_is_parent = '1' else
@@ -293,18 +247,22 @@ begin
    -- software reads the expected parent/child state even while a transfer is in
    -- progress and the raw SI line is being used for the chain.
    multi_si_state <= '0' when multi_role_valid = '1' and multi_is_parent = '1' else si_sync(1);
-   -- Keep SO idle unless we have already committed to a turn-chain role for an
-   -- active transfer. A stock GBA is not participating in any Pocket-specific
-   -- probe protocol, so unresolved idle should stay electrically quiet.
-   multi_so_state <= '0' when ((multi_role_valid = '1' and multi_is_parent = '1' and multi_active = '1') or
+   -- In multi-player mode the SO line is the slot handoff token. Keep it HIGH
+   -- through the parent's own slot, then pull it LOW once the parent has
+   -- finished so the first child sees a real downstream "go" transition before
+   -- starting its reply. Child units still pull SO LOW while forwarding to the
+   -- next device in the chain.
+   multi_so_state <= '0' when ((multi_role_valid = '1' and multi_is_parent = '1' and
+                                (multi_phase = MULTI_PHASE_PARENT_WAIT_CHILD_START or
+                                 multi_phase = MULTI_PHASE_PARENT_RX or
+                                 multi_phase = MULTI_PHASE_PARENT_COMPLETE_WAIT)) or
                                (multi_role_valid = '1' and multi_is_parent = '0' and
                                 (multi_sending = '1' or multi_send_pending = '1')))
                      else '1';
    multi_endlimit <= multi_speed * 18;
    multi_sd_drive_state <= '1' when multi_mode = '1' and
                                     (multi_sending = '1' or
-                                     (multi_phase = MULTI_PHASE_IDLE and
-                                      (multi_role_valid = '0' or multi_is_parent = '0'))) else
+                                     multi_phase = MULTI_PHASE_IDLE) else
                            '0';
    -- Once the child has begun transmitting its reply, trust the parent's SC
    -- release as the authoritative end-of-transfer signal. Real hardware can
@@ -313,58 +271,6 @@ begin
    multi_child_finish_ok <= '1' when multi_phase = MULTI_PHASE_CHILD_WAIT_PARENT_END else
                             '1' when multi_phase = MULTI_PHASE_CHILD_TX else
                             '0';
-   -- Link debug overlay rows, designed to be decoded from a screenshot:
-   -- row0/current:  SC, SD, SI, busy, SD dir, SD out, error, ready, role valid, parent
-   -- row1/sticky:   saw SC fall, SC low, SD low, SI low, non-idle, child-wait, child-rx, child-tx,
-   --                parent, error, SIOMULTI0-write, SIOMULTI1-write
-   -- row2/detail:   parent-tx, parent-wait, parent-rx, parent-complete, child-reply-delay,
-   --                parent-timeout-err, rx-stop-err, child-finish-err, id-valid-seen,
-   --                irq-enable, irq-raised, send-write-seen, top nibble patched in gba_top
-   -- row3/data:     last completed SIOMULTI0 word presented to CPU
-   -- row4/data:     last completed SIOMULTI1 word presented to CPU
-   -- row5/counts:   clean child completion count (16-bit, LSB-first on-screen)
-   debug_row0 <= "000000" &
-                 multi_is_parent &
-                 multi_role_valid &
-                 multi_ready_state &
-                 multi_error &
-                 multi_sd_out_r &
-                 multi_sd_drive_state &
-                 multi_busy_state &
-                 si_sync(1) &
-                 sd_sync(1) &
-                 sc_sync(1);
-   debug_row1 <= "0000" &
-                 sticky_siomulti1_write_seen &
-                 sticky_siomulti0_write_seen &
-                 sticky_error_seen &
-                 sticky_parent_seen &
-                 sticky_child_tx_seen &
-                 sticky_child_rx_seen &
-                 sticky_child_wait_seen &
-                 sticky_non_idle_seen &
-                 sticky_si_low_seen &
-                 sticky_sd_low_seen &
-                 sticky_sc_low_seen &
-                 sticky_sc_fall_seen;
-   debug_row2 <= "0000" &
-                 sticky_send_write_seen &
-                 sticky_irq_raised_seen &
-                 REG_SIOCNT(14) &
-                 sticky_id_valid_seen &
-                 sticky_err_child_finish_seen &
-                 sticky_err_rx_stop_seen &
-                 sticky_err_parent_timeout_seen &
-                 sticky_child_reply_delay_seen &
-                 sticky_parent_complete_seen &
-                 sticky_parent_rx_seen &
-                 sticky_parent_wait_seen &
-                 sticky_parent_tx_seen;
-   debug_row3 <= debug_last_multi0_word;
-   debug_row4 <= debug_last_multi1_word;
-   debug_row5 <= std_logic_vector(debug_child_complete_total);
-   debug_link <= debug_row5 & debug_row4 & debug_row3 & debug_row2 & debug_row1 & debug_row0;
-
    -- Normal mode: expose internal clock select for SCK direction
    serial_int_clock <= REG_SIOCNT(0) when multi_mode = '0' else '0';
 
@@ -396,38 +302,6 @@ begin
             multi_role_stable       <= 0;
             multi_id_valid          <= '0';
             multi_si_seen_low       <= '0';
-            sticky_sc_fall_seen     <= '0';
-            sticky_sc_low_seen      <= '0';
-            sticky_sd_low_seen      <= '0';
-            sticky_si_low_seen      <= '0';
-            sticky_non_idle_seen    <= '0';
-            sticky_child_wait_seen  <= '0';
-            sticky_child_rx_seen    <= '0';
-            sticky_child_tx_seen    <= '0';
-            sticky_parent_seen      <= '0';
-            sticky_error_seen       <= '0';
-            sticky_parent_tx_seen   <= '0';
-            sticky_parent_wait_seen <= '0';
-            sticky_parent_rx_seen   <= '0';
-            sticky_parent_complete_seen <= '0';
-            sticky_child_reply_delay_seen <= '0';
-            sticky_err_parent_timeout_seen <= '0';
-            sticky_err_rx_stop_seen <= '0';
-            sticky_err_child_finish_seen <= '0';
-            sticky_id_valid_seen    <= '0';
-            sticky_irq_raised_seen  <= '0';
-            sticky_send_write_seen  <= '0';
-            sticky_siomulti0_write_seen <= '0';
-            sticky_siomulti1_write_seen <= '0';
-            debug_last_parent_word  <= (others => '0');
-            debug_last_child_word   <= (others => '0');
-            debug_last_multi0_word  <= (others => '0');
-            debug_last_multi1_word  <= (others => '0');
-            debug_start_count       <= (others => '0');
-            debug_sc_fall_count     <= (others => '0');
-            debug_sc_rise_count     <= (others => '0');
-            debug_child_complete_count <= (others => '0');
-            debug_child_complete_total <= (others => '0');
          elsif (multi_mode_prev = '0') then
             multi_is_parent         <= '0';
             multi_role_valid        <= '0';
@@ -435,38 +309,6 @@ begin
             multi_role_stable       <= 0;
             multi_id_valid          <= '0';
             multi_si_seen_low       <= '0';
-            sticky_sc_fall_seen     <= '0';
-            sticky_sc_low_seen      <= '0';
-            sticky_sd_low_seen      <= '0';
-            sticky_si_low_seen      <= '0';
-            sticky_non_idle_seen    <= '0';
-            sticky_child_wait_seen  <= '0';
-            sticky_child_rx_seen    <= '0';
-            sticky_child_tx_seen    <= '0';
-            sticky_parent_seen      <= '0';
-            sticky_error_seen       <= '0';
-            sticky_parent_tx_seen   <= '0';
-            sticky_parent_wait_seen <= '0';
-            sticky_parent_rx_seen   <= '0';
-            sticky_parent_complete_seen <= '0';
-            sticky_child_reply_delay_seen <= '0';
-            sticky_err_parent_timeout_seen <= '0';
-            sticky_err_rx_stop_seen <= '0';
-            sticky_err_child_finish_seen <= '0';
-            sticky_id_valid_seen    <= '0';
-            sticky_irq_raised_seen  <= '0';
-            sticky_send_write_seen  <= '0';
-            sticky_siomulti0_write_seen <= '0';
-            sticky_siomulti1_write_seen <= '0';
-            debug_last_parent_word  <= (others => '0');
-            debug_last_child_word   <= (others => '0');
-            debug_last_multi0_word  <= (others => '0');
-            debug_last_multi1_word  <= (others => '0');
-            debug_start_count       <= (others => '0');
-            debug_sc_fall_count     <= (others => '0');
-            debug_sc_rise_count     <= (others => '0');
-            debug_child_complete_count <= (others => '0');
-            debug_child_complete_total <= (others => '0');
          elsif (multi_phase = MULTI_PHASE_IDLE) then
             if (multi_role_valid = '0') then
                if (multi_parent_observed /= multi_role_sample_parent) then
@@ -482,85 +324,18 @@ begin
                   end if;
                end if;
             elsif (multi_is_parent = '1') then
-               -- Parent remains provisional until the cable keeps showing the
-               -- same idle signature. If the evidence disappears before start,
-               -- fall back to unresolved/child instead of staying stuck parent.
-               if (multi_parent_observed = '0') then
-                  multi_is_parent          <= '0';
-                  multi_role_valid         <= '0';
-                  multi_id_valid           <= '0';
-                  multi_role_sample_parent <= '0';
-                  multi_role_stable        <= 0;
-               else
-                  multi_role_stable <= 0;
-               end if;
+               -- Once the cable has shown a credible master-side idle signature,
+               -- keep that role latched for the session. On Pocket hardware the
+               -- idle SI level can wobble enough to revoke parent just before our
+               -- own SC edge, which then makes us mis-capture our own transfer as
+               -- a child attempt.
+               multi_role_stable <= 0;
             else
                multi_role_stable <= 0;
             end if;
             multi_si_seen_low <= '0';
          else
             multi_role_stable <= 0;
-         end if;
-
-         if (multi_mode = '1') then
-            if (sc_fall = '1') then
-               sticky_sc_fall_seen <= '1';
-               debug_sc_fall_count <= sat_inc4(debug_sc_fall_count);
-            end if;
-            if (sc_sync(1) = '0') then
-               sticky_sc_low_seen <= '1';
-            end if;
-            if (sd_sync(1) = '0') then
-               sticky_sd_low_seen <= '1';
-            end if;
-            if (si_sync(1) = '0') then
-               sticky_si_low_seen <= '1';
-            end if;
-            if (multi_phase /= MULTI_PHASE_IDLE) then
-               sticky_non_idle_seen <= '1';
-            end if;
-            if (multi_phase = MULTI_PHASE_CHILD_WAIT_PARENT_START) then
-               sticky_child_wait_seen <= '1';
-            end if;
-            if (multi_phase = MULTI_PHASE_CHILD_RX) then
-               sticky_child_rx_seen <= '1';
-            end if;
-            if (multi_phase = MULTI_PHASE_CHILD_TX) then
-               sticky_child_tx_seen <= '1';
-            end if;
-            if (multi_role_valid = '1' and multi_is_parent = '1') then
-               sticky_parent_seen <= '1';
-            end if;
-            if (multi_phase = MULTI_PHASE_PARENT_TX) then
-               sticky_parent_tx_seen <= '1';
-            end if;
-            if (multi_phase = MULTI_PHASE_PARENT_WAIT_CHILD_START) then
-               sticky_parent_wait_seen <= '1';
-            end if;
-            if (multi_phase = MULTI_PHASE_PARENT_RX) then
-               sticky_parent_rx_seen <= '1';
-            end if;
-            if (multi_phase = MULTI_PHASE_PARENT_COMPLETE_WAIT) then
-               sticky_parent_complete_seen <= '1';
-            end if;
-            if (multi_phase = MULTI_PHASE_CHILD_REPLY_DELAY) then
-               sticky_child_reply_delay_seen <= '1';
-            end if;
-            if (multi_error = '1') then
-               sticky_error_seen <= '1';
-            end if;
-            if (multi_id_valid = '1') then
-               sticky_id_valid_seen <= '1';
-            end if;
-            if ((SIOMLT_SEND_written = '1' and multi_mode = '1') or SIO12A_word_written = '1') then
-               sticky_send_write_seen <= '1';
-            end if;
-            if (SIOMULTI0_written = '1') then
-               sticky_siomulti0_write_seen <= '1';
-            end if;
-            if (SIOMULTI1_written = '1') then
-               sticky_siomulti1_write_seen <= '1';
-            end if;
          end if;
 
          -- Baud rate divisor lookup (always computed, used by multi-player)
@@ -596,7 +371,9 @@ begin
 
             -- On real hardware the slave's busy state is driven by the
             -- incoming SC line, not by a local start-bit write.
-            if ((multi_role_valid = '0' or multi_is_parent = '0') and sc_fall = '1' and multi_phase = MULTI_PHASE_IDLE) then
+            if ((multi_role_valid = '0' or multi_is_parent = '0') and
+                multi_parent_observed = '0' and
+                sc_fall = '1' and multi_phase = MULTI_PHASE_IDLE) then
                multi_is_parent          <= '0';
                multi_role_valid         <= '1';
                multi_role_sample_parent <= '0';
@@ -604,7 +381,7 @@ begin
                multi_phase              <= MULTI_PHASE_CHILD_WAIT_PARENT_START;
                multi_bitcount           <= 0;
                multi_cycles             <= (others => '0');
-               multi_tx_reg             <= "11" & REG_SIOMLT_SEND;
+               multi_tx_reg             <= "11" & multi_local_send_word;
                multi_error              <= '0';
                multi_rx_reg             <= (others => '1');
                multi_rx_first           <= '0';
@@ -617,14 +394,10 @@ begin
                end if;
                REG_SIODATA32_READBACK   <= (others => '1');
             elsif (multi_is_parent = '0' and sc_rise = '1' and multi_phase /= MULTI_PHASE_IDLE) then
-               debug_sc_rise_count <= sat_inc4(debug_sc_rise_count);
                if (multi_child_finish_ok = '0' or multi_si_seen_low = '0') then
                   multi_error <= '1';
-                  sticky_err_child_finish_seen <= '1';
                else
                   multi_id_valid <= '1';
-                  debug_child_complete_count <= sat_inc4(debug_child_complete_count);
-                  debug_child_complete_total <= debug_child_complete_total + 1;
                end if;
                multi_phase    <= MULTI_PHASE_IDLE;
                multi_bitcount <= 0;
@@ -635,7 +408,6 @@ begin
                multi_si_seen_low <= '0';
                if (REG_SIOCNT(14) = '1') then
                   IRP_Serial <= '1';
-                  sticky_irq_raised_seen <= '1';
                end if;
             else
                case multi_phase is
@@ -680,14 +452,12 @@ begin
                         if (multi_endcount >= multi_endlimit) then
                            multi_phase    <= MULTI_PHASE_IDLE;
                            multi_error    <= '1';
-                           sticky_err_parent_timeout_seen <= '1';
                            multi_cycles   <= (others => '0');
                            multi_rx_first <= '0';
                            multi_endcount <= 0;
                            multi_sd_out_r <= '1';
                            if (REG_SIOCNT(14) = '1') then
                               IRP_Serial <= '1';
-                              sticky_irq_raised_seen <= '1';
                            end if;
                         else
                            multi_endcount <= multi_endcount + 1;
@@ -728,21 +498,15 @@ begin
                               multi_rx_first <= '0';
                               if (sd_sync(1) = '0') then
                                  multi_error <= '1';
-                                 sticky_err_rx_stop_seen <= '1';
                               end if;
 
                               if (multi_phase = MULTI_PHASE_PARENT_RX) then
                                  REG_SIODATA32_READBACK <= pack_multi_slots(REG_SIOMLT_SEND, multi_rx_reg(15 downto 0));
-                                 debug_last_multi0_word <= REG_SIOMLT_SEND;
-                                 debug_last_multi1_word <= multi_rx_reg(15 downto 0);
                                  multi_phase <= MULTI_PHASE_PARENT_COMPLETE_WAIT;
                                  multi_endcount <= 0;
                                  multi_cycles   <= (others => '0');
                               else
                                  REG_SIODATA32_READBACK <= pack_multi_slots(multi_rx_reg(15 downto 0), REG_SIOMLT_SEND);
-                                 debug_last_multi0_word <= multi_rx_reg(15 downto 0);
-                                 debug_last_multi1_word <= REG_SIOMLT_SEND;
-                                 debug_last_parent_word <= multi_rx_reg(15 downto 0);
                                  multi_phase <= MULTI_PHASE_CHILD_REPLY_DELAY;
                                  multi_cycles       <= (others => '0');
                                  multi_sd_out_r     <= '1';
@@ -768,7 +532,6 @@ begin
                            multi_bitcount <= 0;
                            multi_cycles   <= (others => '0');
                            multi_sd_out_r <= '0';
-                           debug_last_child_word <= REG_SIOMLT_SEND;
                         else
                            multi_cycles <= multi_cycles + 1;
                         end if;
@@ -786,7 +549,6 @@ begin
                            end if;
                            if (REG_SIOCNT(14) = '1') then
                               IRP_Serial <= '1';
-                              sticky_irq_raised_seen <= '1';
                            end if;
                         else
                            multi_endcount <= multi_endcount + 1;
@@ -894,12 +656,11 @@ begin
             if (REG_SIOCNT(7) = '1') then
                if (multi_mode = '1') then
                   -- Multi-player transfer start
-                  debug_start_count <= sat_inc4(debug_start_count);
                   multi_bitcount <= 0;
                   multi_cycles   <= (others => '0');
                   multi_rx_first <= '0';
                   multi_error    <= '0';
-                  multi_tx_reg   <= "11" & REG_SIOMLT_SEND;
+                  multi_tx_reg   <= "11" & multi_local_send_word;
                   multi_rx_reg   <= (others => '1');
                   multi_endcount <= 0;
 
