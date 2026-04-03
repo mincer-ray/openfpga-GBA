@@ -77,26 +77,6 @@
             "value": 1
           }
         ]
-      },
-      {
-        "name": "Link Cable Role",
-        "id": 40,
-        "type": "list",
-        "enabled": true,
-        "address": "0x8C",
-        "persist": true,
-        "writeonly": true,
-        "defaultval": 0,
-        "options": [
-          {
-            "name": "Child",
-            "value": 0
-          },
-          {
-            "name": "Parent",
-            "value": 1
-          }
-        ]
       }
     ],
     "messages": []

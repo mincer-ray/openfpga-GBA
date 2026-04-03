@@ -1342,7 +1342,6 @@ end
 reg [1:0] ff_mode = 0;    // 0 = Hold, 1 = Toggle, 2 = Disabled
 reg force_rtc = 0;        // 0 = Off, 1 = Force enable RTC/GPIO
 reg [1:0] turbo_mode = 0; // 0 = Disabled, 1 = Turbo A, 2 = Turbo B
-reg link_is_parent = 0;   // 0 = Child, 1 = Parent
 
 reg [13:0] reset_counter = 0;
 wire       core_reset = (reset_counter != 0);
@@ -1357,12 +1356,11 @@ always @(posedge clk_74a) begin
         32'h80: ff_mode        <= bridge_wr_data[1:0];
         32'h84: force_rtc      <= bridge_wr_data[0];
         32'h88: turbo_mode     <= bridge_wr_data[1:0];
-        32'h8C: link_is_parent <= bridge_wr_data[0];
         endcase
     end
 end
 
-// ---- CDC: ff_mode, force_rtc, turbo_mode, link_is_parent → clk_sys ----
+// ---- CDC: ff_mode, force_rtc, turbo_mode → clk_sys ----
 wire [1:0] ff_mode_s;
 synch_3 #(.WIDTH(2)) ff_mode_sync(ff_mode, ff_mode_s, clk_sys);
 
@@ -1371,9 +1369,6 @@ synch_3 force_rtc_sync(force_rtc, force_rtc_s, clk_sys);
 
 wire [1:0] turbo_mode_s;
 synch_3 #(.WIDTH(2)) turbo_mode_sync(turbo_mode, turbo_mode_s, clk_sys);
-
-wire link_is_parent_s;
-synch_3 link_is_parent_sync(link_is_parent, link_is_parent_s, clk_sys);
 
 // ============================================================
 // Section 4: Video Output — framebuffer + raster scan
@@ -1387,6 +1382,7 @@ assign video_rgb_clock_90 = clk_vid_90;
 wire [15:0] pixel_out_addr;
 wire [17:0] pixel_out_data;
 wire        pixel_out_we;
+wire [95:0] link_debug_overlay;
 
 video_adapter video_out (
     .clk_sys    ( clk_sys ),
@@ -1396,6 +1392,7 @@ video_adapter video_out (
     .pixel_addr ( pixel_out_addr ),
     .pixel_data ( pixel_out_data ),
     .pixel_we   ( pixel_out_we ),
+    .debug_overlay ( link_debug_overlay ),
 
     .video_rgb  ( video_rgb ),
     .video_de   ( video_de ),
@@ -1658,7 +1655,6 @@ gba_top #(
     .serial_sc_out       ( serial_sc_out ),
     .serial_sc_in        ( port_tran_sck ),
     .serial_sc_dir       ( serial_sc_dir ),
-    .link_is_parent      ( link_is_parent_s ),
     // Debug (unused)
     .GBA_BusAddr         ( 28'd0 ),
     .GBA_BusRnW          ( 1'b0 ),
@@ -1678,7 +1674,7 @@ gba_top #(
     // Debug outputs
     .debug_cpu_pc        (),
     .debug_cpu_mixed     (),
-    .debug_irq           (),
+    .debug_irq           ( link_debug_overlay ),
     .debug_dma           (),
     .debug_mem           ()
 );

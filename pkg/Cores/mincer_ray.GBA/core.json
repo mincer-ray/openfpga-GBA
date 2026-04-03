@@ -22,7 +22,7 @@
       },
       "hardware": {
         "link_port": true,
-        "cartridge_adapter": -1
+        "cartridge_adapter": 0
       }
     },
     "cores": [
