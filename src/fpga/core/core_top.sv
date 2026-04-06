@@ -1058,7 +1058,7 @@ assign vpll_feed = 1'bZ;
 // ============================================================
 
 wire    clk_sys;            // ~100.66 MHz — GBA core domain
-wire    clk_sys_90;         // ~100.66 MHz, 90 deg — SDRAM clock (direct PLL drive)
+wire    clk_sys_90;         // ~100.66 MHz, 270 deg — SDRAM clock (direct PLL drive)
 wire    clk_vid;            // 8.388608 MHz — video pixel clock (2× GBA dot clock)
 wire    clk_vid_90;         // 8.388608 MHz, 90 deg — video DDR
 wire    pll_core_locked;

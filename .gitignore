@@ -31,6 +31,7 @@ build_output/
 test_results.txt
 
 # Cloned Reference
+references/*
 reference/*
 
 stresstest.txt
