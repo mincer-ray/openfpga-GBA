@@ -68,6 +68,7 @@ jobs:
           path: |
             src/fpga/build/output_files/ap_core.fit.summary
             src/fpga/build/output_files/ap_core.sta.summary
+            src/fpga/build/output_files/ap_core.sta.rpt
             src/fpga/build/output_files/ap_core.flow.rpt
             build_output/reports/
 
