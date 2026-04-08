@@ -31,7 +31,8 @@ module video_adapter (
     output reg         video_de,
     output reg         video_vs,
     output reg         video_hs,
-    output reg         video_skip
+    output reg         video_skip,
+    output wire        display_vblank   // 1 when display raster is in vblank (not reading FB)
 );
 
     // === Raster Scan Timing Parameters ===
@@ -95,6 +96,8 @@ module video_adapter (
                      (h_count <  H_ACTIVE + H_FP + H_SYNC);
     wire vs_region = (v_count >= V_ACTIVE + V_FP) &
                      (v_count <  V_ACTIVE + V_FP + V_SYNC);
+
+    assign display_vblank = (v_count >= V_ACTIVE);
 
     // === Port B: Framebuffer Read (clk_vid domain) ===
     wire [15:0] read_addr = v_count * H_ACTIVE + h_count;

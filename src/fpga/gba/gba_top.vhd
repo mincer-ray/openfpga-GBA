@@ -107,7 +107,8 @@ entity gba_top is
       pixel_out_addr        : buffer integer range 0 to 38399;       -- address for framebuffer 
       pixel_out_data        : buffer std_logic_vector(17 downto 0);  -- RGB data for framebuffer 
       pixel_out_we          : buffer std_logic;                      -- new pixel for framebuffer
-      -- sound                             
+      vblank_trigger_out    : out    std_logic;                      -- vblank pulse for frameskip
+      -- sound
       sound_out_left        : out    std_logic_vector(15 downto 0) := (others => '0');
       sound_out_right       : out    std_logic_vector(15 downto 0) := (others => '0');
       -- debug                    
@@ -974,6 +975,8 @@ begin
    
    
    
+
+   vblank_trigger_out <= vblank_trigger;
 
 end architecture;
 

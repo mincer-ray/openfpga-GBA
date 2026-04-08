@@ -1366,6 +1366,34 @@ wire [15:0] pixel_out_addr;
 wire [17:0] pixel_out_data;
 wire        pixel_out_we;
 
+// Frameskip: gate pixel writes during fast-forward to one frame per display refresh
+wire        gpu_vblank_trigger;     // 1-cycle pulse from GBA GPU (clk_sys domain)
+wire        display_vblank_raw;     // level signal from video_adapter (clk_vid domain)
+wire        display_vblank_s;       // synchronized to clk_sys
+
+synch_3 display_vblank_sync (
+    .i    ( display_vblank_raw ),
+    .o    ( display_vblank_s ),
+    .clk  ( clk_sys )
+);
+
+reg frame_allow = 1;
+reg display_vblank_prev = 0;
+
+always @(posedge clk_sys) begin
+    display_vblank_prev <= display_vblank_s;
+    if (~fast_forward) begin
+        frame_allow <= 1'b1;
+    end else begin
+        if (gpu_vblank_trigger && frame_allow)
+            frame_allow <= 1'b0;
+        if (display_vblank_s && ~display_vblank_prev)  // rising edge = display entered vblank
+            frame_allow <= 1'b1;
+    end
+end
+
+wire pixel_we_gated = pixel_out_we & (frame_allow | ~fast_forward);
+
 video_adapter video_out (
     .clk_sys    ( clk_sys ),
     .clk_vid    ( clk_vid ),
@@ -1373,13 +1401,14 @@ video_adapter video_out (
 
     .pixel_addr ( pixel_out_addr ),
     .pixel_data ( pixel_out_data ),
-    .pixel_we   ( pixel_out_we ),
+    .pixel_we   ( pixel_we_gated ),
 
-    .video_rgb  ( video_rgb ),
-    .video_de   ( video_de ),
-    .video_vs   ( video_vs ),
-    .video_hs   ( video_hs ),
-    .video_skip ( video_skip )
+    .video_rgb      ( video_rgb ),
+    .video_de       ( video_de ),
+    .video_vs       ( video_vs ),
+    .video_hs       ( video_hs ),
+    .video_skip     ( video_skip ),
+    .display_vblank ( display_vblank_raw )
 );
 
 
@@ -1636,6 +1665,7 @@ gba_top #(
     .pixel_out_addr      ( pixel_out_addr ),
     .pixel_out_data      ( pixel_out_data ),
     .pixel_out_we        ( pixel_out_we ),
+    .vblank_trigger_out  ( gpu_vblank_trigger ),
     // Audio
     .sound_out_left      ( sound_out_left ),
     .sound_out_right     ( sound_out_right ),
