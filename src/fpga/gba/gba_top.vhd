@@ -108,6 +108,7 @@ entity gba_top is
       pixel_out_data        : buffer std_logic_vector(17 downto 0);  -- RGB data for framebuffer 
       pixel_out_we          : buffer std_logic;                      -- new pixel for framebuffer
       vblank_trigger_out    : out    std_logic;                      -- vblank pulse for frameskip
+      skip_drawing          : in     std_logic;                      -- suppress GPU drawer for frameskip
       -- sound
       sound_out_left        : out    std_logic_vector(15 downto 0) := (others => '0');
       sound_out_right       : out    std_logic_vector(15 downto 0) := (others => '0');
@@ -753,9 +754,11 @@ begin
       PALETTE_OAM_addr     => PALETTE_OAM_addr,   
       PALETTE_OAM_datain   => PALETTE_OAM_datain, 
       PALETTE_OAM_dataout  => PALETTE_OAM_dataout,
-      PALETTE_OAM_we       => PALETTE_OAM_we,            
-   
-      DISPSTAT_debug       => DISPSTAT_debug       
+      PALETTE_OAM_we       => PALETTE_OAM_we,
+
+      skip_drawing         => skip_drawing,
+
+      DISPSTAT_debug       => DISPSTAT_debug
    );
    
    igba_timer : entity work.gba_timer

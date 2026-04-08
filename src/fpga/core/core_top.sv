@@ -1366,10 +1366,12 @@ wire [15:0] pixel_out_addr;
 wire [17:0] pixel_out_data;
 wire        pixel_out_we;
 
-// Frameskip: during fast-forward, only allow pixel writes while the display
-// raster is in vblank (not reading the framebuffer).  This prevents the GPU
-// from overwriting lines the display is currently scanning out.
-wire        gpu_vblank_trigger;     // (unused for now, kept for future use)
+// Frameskip: during fast-forward, suppress the GPU drawer for entire frames
+// to keep the framebuffer coherent.  gpu_vblank_trigger marks GPU frame
+// boundaries; display_vblank tells us whether the display is still scanning
+// the buffer.  At each GPU frame boundary we decide: if the display is still
+// actively reading, skip the next frame's drawing entirely.
+wire        gpu_vblank_trigger;
 wire        display_vblank_raw;     // level signal from video_adapter (clk_vid domain)
 wire        display_vblank_s;       // synchronized to clk_sys
 
@@ -1379,7 +1381,16 @@ synch_3 display_vblank_sync (
     .clk  ( clk_sys )
 );
 
-wire pixel_we_gated = pixel_out_we & (~fast_forward | display_vblank_s);
+reg skip_drawing;
+always @(posedge clk_sys) begin
+    if (~pll_core_locked)
+        skip_drawing <= 0;
+    else if (!fast_forward)
+        skip_drawing <= 0;
+    else if (gpu_vblank_trigger)
+        // GPU just finished a frame — skip next frame if display is still scanning
+        skip_drawing <= ~display_vblank_s;
+end
 
 video_adapter video_out (
     .clk_sys    ( clk_sys ),
@@ -1388,7 +1399,7 @@ video_adapter video_out (
 
     .pixel_addr ( pixel_out_addr ),
     .pixel_data ( pixel_out_data ),
-    .pixel_we   ( pixel_we_gated ),
+    .pixel_we   ( pixel_out_we ),
 
     .video_rgb      ( video_rgb ),
     .video_de       ( video_de ),
@@ -1653,6 +1664,7 @@ gba_top #(
     .pixel_out_data      ( pixel_out_data ),
     .pixel_out_we        ( pixel_out_we ),
     .vblank_trigger_out  ( gpu_vblank_trigger ),
+    .skip_drawing        ( skip_drawing ),
     // Audio
     .sound_out_left      ( sound_out_left ),
     .sound_out_right     ( sound_out_right ),

@@ -70,7 +70,9 @@ entity gba_gpu is
       PALETTE_OAM_datain   : in    std_logic_vector(31 downto 0);
       PALETTE_OAM_dataout  : out   std_logic_vector(31 downto 0);
       PALETTE_OAM_we       : in    std_logic_vector(3 downto 0);
-      
+
+      skip_drawing         : in    std_logic;
+
       DISPSTAT_debug       : out std_logic_vector(31 downto 0)
    );
 end entity;
@@ -159,7 +161,7 @@ begin
       pixel_out_we           => pixel_we,  
                              
       linecounter            => linecounter_drawer,    
-      drawline               => drawline,
+      drawline               => drawline and not skip_drawing,
       refpoint_update        => refpoint_update,
       hblank_trigger         => hblank_trigger,  
       vblank_trigger         => vblank_trigger,  
