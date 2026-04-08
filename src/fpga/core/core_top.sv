@@ -1366,8 +1366,10 @@ wire [15:0] pixel_out_addr;
 wire [17:0] pixel_out_data;
 wire        pixel_out_we;
 
-// Frameskip: gate pixel writes during fast-forward to one frame per display refresh
-wire        gpu_vblank_trigger;     // 1-cycle pulse from GBA GPU (clk_sys domain)
+// Frameskip: during fast-forward, only allow pixel writes while the display
+// raster is in vblank (not reading the framebuffer).  This prevents the GPU
+// from overwriting lines the display is currently scanning out.
+wire        gpu_vblank_trigger;     // (unused for now, kept for future use)
 wire        display_vblank_raw;     // level signal from video_adapter (clk_vid domain)
 wire        display_vblank_s;       // synchronized to clk_sys
 
@@ -1377,33 +1379,7 @@ synch_3 display_vblank_sync (
     .clk  ( clk_sys )
 );
 
-reg frame_allow = 1;
-reg frame_requested = 0;
-reg display_vblank_prev = 0;
-
-always @(posedge clk_sys) begin
-    display_vblank_prev <= display_vblank_s;
-    if (~fast_forward) begin
-        frame_allow     <= 1'b1;
-        frame_requested <= 1'b0;
-    end else begin
-        // Display entered vblank (done reading): request the next complete frame
-        if (display_vblank_s && ~display_vblank_prev)
-            frame_requested <= 1'b1;
-
-        // GPU hit vblank (frame boundary): transition allow/request state
-        if (gpu_vblank_trigger) begin
-            if (frame_allow)
-                frame_allow <= 1'b0;        // just finished writing a frame, stop
-            if (frame_requested) begin
-                frame_allow     <= 1'b1;    // allow the NEXT complete frame
-                frame_requested <= 1'b0;
-            end
-        end
-    end
-end
-
-wire pixel_we_gated = pixel_out_we & (frame_allow | ~fast_forward);
+wire pixel_we_gated = pixel_out_we & (~fast_forward | display_vblank_s);
 
 video_adapter video_out (
     .clk_sys    ( clk_sys ),
