@@ -46,6 +46,7 @@ architecture arch of gba_drawer_mode0 is
       CALCBASE,
       CALCADDR1,
       CALCADDR2,
+      CALCADDR3,
       WAITREAD_TILE,
       CALCCOLORADDR,
       WAITREAD_COLOR,
@@ -80,6 +81,7 @@ architecture arch of gba_drawer_mode0 is
    signal x_div                : integer range 1 to 2;
                                
    signal x_scrolled           : integer range 0 to 1023;
+   signal scrollX_reg          : unsigned(8 downto 0) := (others => '0');
    signal tileindex            : integer range 0 to 4095;
                                
    signal tileinfo             : std_logic_vector(15 downto 0) := (others => '0');
@@ -124,11 +126,12 @@ begin
                   scroll_y_mod <= 256;
                   case (to_integer(screensize)) is
                      when 1 => scroll_x_mod <= 512;
-                     when 2 => scroll_y_mod <= 512; 
+                     when 2 => scroll_y_mod <= 512;
                      when 3 => scroll_x_mod <= 512; scroll_y_mod <= 512;
                      when others => null;
                   end case;
                   x_cnt     <= 0;
+                  scrollX_reg <= scrollX;
                   VRAM_lastcolor_valid <= '0'; -- invalidate fetch cache
                elsif (palettefetch = IDLE) then
                   busy         <= '0';
@@ -153,7 +156,7 @@ begin
             when CALCADDR1 =>
                if (pixelpos >= x_cnt or lockspeed = '0') then
                   vramfetch  <= CALCADDR2;
-                  x_scrolled <= ((x_cnt + to_integer(scrollX)) mod scroll_x_mod);
+                  x_scrolled <= ((x_cnt + to_integer(scrollX_reg)) mod scroll_x_mod);
                end if;
    
             when CALCADDR2 =>
@@ -168,7 +171,11 @@ begin
                   tileindex_var := tileindex_var + 2048;
                end if;
                tileindex_var := tileindex_var + offset_y + (x_scrolled_var / 8);
-               VRAM_byteaddr <= to_unsigned(mapbaseaddr + (tileindex_var * 2), VRAM_byteaddr'length);
+               tileindex     <= tileindex_var;
+               vramfetch     <= CALCADDR3;
+
+            when CALCADDR3 =>
+               VRAM_byteaddr <= to_unsigned(mapbaseaddr + (tileindex * 2), VRAM_byteaddr'length);
                vramfetch     <= WAITREAD_TILE;
                vram_readwait <= 2;
             

@@ -123,6 +123,7 @@ architecture arch of gba_savestates is
       LOAD_HEADERAMOUNTCHECK,
       LOADINTERNALS_READ,
       LOADINTERNALS_WRITEFIRST,
+      LOADINTERNALS_SETTLE,
       LOADINTERNALS_WRITE,
       LOADREGISTER_READ,
       LOADREGISTER_WRITEFIRST,
@@ -152,10 +153,21 @@ architecture arch of gba_savestates is
    
    signal internal_databuffer   : std_logic_vector(63 downto 0) := (others => '0');
    signal first_dword           : std_logic := '0';
-   
+
    signal header_amount         : unsigned(31 downto 0) := (others => '0');
 
-begin 
+   -- Gated pipeline for combinational bus readback signals.
+   -- done/Dout are purely combinational from Adr (address-decode MUX across
+   -- all eProcReg_gba instances).  The fan-out path takes ~10.7 ns — longer
+   -- than one 9.93 ns clock period.  We gate capture with bus_wait so that
+   -- done_r/dout_r only sample after Adr has been stable for a full extra
+   -- cycle, giving the decode ~20 ns (2 periods) to settle.  A matching
+   -- set_multicycle_path constraint in the SDC tells the fitter.
+   signal done_r   : std_logic := '0';
+   signal dout_r   : std_logic_vector(proc_buswidth-1 downto 0) := (others => '0');
+   signal bus_wait : std_logic := '0';
+
+begin
 
    SAVE_BusACC          <= ACCESS_32BIT;
    internal_bus_out.acc <= ACCESS_32BIT;
@@ -198,7 +210,7 @@ begin
    process (clk100)
    begin
       if rising_edge(clk100) then
-   
+
          SAVE_Bus_ena         <= '0';
          bus_out_ena          <= '0';
          internal_bus_out.ena <= '0';
@@ -207,8 +219,19 @@ begin
          registerram_we       <= "0000";
          registerram_readen   <= '0';
          load_done            <= '0';
-         
+
          bus_out_be    <= x"FF";
+
+         -- Gated pipeline: only capture bus response when address is stable.
+         -- bus_wait is set to '1' by the state machine whenever Adr changes;
+         -- it auto-clears here after 1 cycle, then capture resumes.
+         if bus_wait = '0' then
+            done_r <= internal_bus_out.done;
+            dout_r <= internal_bus_out.Dout;
+         else
+            done_r <= '0';
+         end if;
+         bus_wait <= '0';
 
          gb_on_1 <= gb_on;
          
@@ -280,27 +303,31 @@ begin
                   internal_bus_out.ena <= '1';
                   count                <= 2;
                   saving_savestate     <= '1';
-               end if;            
-            
+                  bus_wait             <= '1';
+                  done_r               <= '0';
+               end if;
+
             when SAVEINTERNALS_WAIT =>
-               if (internal_bus_out.done = '1') then
+               if (done_r = '1') then
                   if (first_dword = '1') then
                      first_dword          <= '0';
                      internal_bus_out.adr <= std_logic_vector(unsigned(internal_bus_out.adr) + 1);
                      internal_bus_out.ena <= '1';
+                     bus_wait             <= '1';
+                     done_r               <= '0';
                      if (is_simu = '0') then
-                        internal_databuffer(31 downto 0) <= internal_bus_out.Dout;
+                        internal_databuffer(31 downto 0) <= dout_r;
                      else
                         for i in 0 to 31 loop
-                           if (internal_bus_out.Dout(i) = '0') then internal_databuffer(i) <= '0'; else internal_databuffer(i) <= '1'; end if;
+                           if (dout_r(i) = '0') then internal_databuffer(i) <= '0'; else internal_databuffer(i) <= '1'; end if;
                         end loop;
                      end if;
                   else
                      if (is_simu = '0') then
-                        internal_databuffer(63 downto 32) <= internal_bus_out.Dout;
+                        internal_databuffer(63 downto 32) <= dout_r;
                      else
                         for i in 0 to 31 loop
-                           if (internal_bus_out.Dout(i) = '0') then internal_databuffer(32 + i) <= '0'; else internal_databuffer(32 + i) <= '1'; end if;
+                           if (dout_r(i) = '0') then internal_databuffer(32 + i) <= '0'; else internal_databuffer(32 + i) <= '1'; end if;
                         end loop;
                      end if;
                      state       <= SAVEINTERNALS_READ;
@@ -308,7 +335,7 @@ begin
                end if;
               
             when SAVEINTERNALS_READ =>
-               if (internal_bus_out.done = '1') then
+               if (done_r = '1') then
                   state          <= SAVEINTERNALS_WRITE;
                   bus_out_Din    <= internal_databuffer;
                   bus_out_ena    <= '1';
@@ -325,7 +352,9 @@ begin
                      count                <= count + 2;
                      internal_bus_out.adr <= std_logic_vector(unsigned(internal_bus_out.adr) + 1);
                      internal_bus_out.ena <= '1';
-                  else 
+                     bus_wait             <= '1';
+                     done_r               <= '0';
+                  else
                      state              <= SAVEREGISTER_READ;
                      first_dword        <= '1';
                      registerram_addr_r <= 0;
@@ -455,6 +484,8 @@ begin
                      internal_bus_out.rnw <= '0';
                      count                <= 2;
                      loading_savestate    <= '1';
+                     bus_wait             <= '1';
+                     done_r               <= '0';
                   else
                      state                <= IDLE;
                      sleep_savestate      <= '0';
@@ -470,15 +501,20 @@ begin
                end if;
                
             when LOADINTERNALS_WRITEFIRST =>
-               if (internal_bus_out.done = '1') then
-                  state                <= LOADINTERNALS_WRITE;
+               if (done_r = '1') then
+                  state                <= LOADINTERNALS_SETTLE;
                   internal_bus_out.adr <= std_logic_vector(unsigned(internal_bus_out.adr) + 1);
                   internal_bus_out.Din <= bus_out_Dout(63 downto 32);
-                  internal_bus_out.ena <= '1';
+                  bus_wait             <= '1';
+                  done_r               <= '0';
                end if;
-            
-            when LOADINTERNALS_WRITE => 
-               if (internal_bus_out.done = '1') then
+
+            when LOADINTERNALS_SETTLE =>
+                  state                <= LOADINTERNALS_WRITE;
+                  internal_bus_out.ena <= '1';
+
+            when LOADINTERNALS_WRITE =>
+               if (done_r = '1') then
                   bus_out_Adr <= std_logic_vector(unsigned(bus_out_Adr) + 2);
                   if (count < INTERNALSCOUNT) then
                      state          <= LOADINTERNALS_READ;
@@ -486,7 +522,9 @@ begin
                      bus_out_ena    <= '1';
                      bus_out_active <= '1';
                      internal_bus_out.adr <= std_logic_vector(unsigned(internal_bus_out.adr) + 1);
-                  else 
+                     bus_wait             <= '1';
+                     done_r               <= '0';
+                  else
                      state              <= LOADREGISTER_READ;
                      SAVE_BusAddr       <= x"4000000";
                      registerram_addr_w <= 0;

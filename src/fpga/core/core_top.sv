@@ -761,6 +761,7 @@ wire sdram_wr_pending;
 
 sdram_pocket sdram (
     .clk            ( clk_sys ),
+    .clk_sdram      ( clk_sys_90 ),
     .reset          ( ~pll_core_locked ),
 
     // Ch1: Read interface — registered mux between ROM and save state staging
@@ -1075,7 +1076,7 @@ assign vpll_feed = 1'bZ;
 // ============================================================
 
 wire    clk_sys;            // ~100.66 MHz — GBA core domain
-wire    clk_sys_90;         // ~100.66 MHz, 270 deg — SDRAM DDR outclock (→ 90° SDRAM_CLK)
+wire    clk_sys_90;         // ~100.66 MHz, ~248 deg (6831 ps) — SDRAM clock (DDR-forwarded to pin)
 wire    clk_vid;            // 8.388608 MHz — video pixel clock (2× GBA dot clock)
 wire    clk_vid_90;         // 8.388608 MHz, 90 deg — video DDR
 wire    pll_core_locked;

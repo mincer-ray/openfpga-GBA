@@ -430,6 +430,7 @@ architecture arch of gba_cpu is
    signal mul_opaddlow      : unsigned(31 downto 0);
    signal mul_opaddhigh     : unsigned(31 downto 0);
    signal mul_result        : unsigned(63 downto 0);
+   signal mul_low_carry     : unsigned(0 downto 0) := "0";
    signal mul_wait          : integer range 0 to 3;
    
    -- ############# SHIFTER ##############
@@ -517,8 +518,9 @@ architecture arch of gba_cpu is
    );
    signal MSR_Stage : tMRS_stage := MSR_START;
    
-   signal msr_value            : unsigned(31 downto 0); 
-   signal msr_writebackvalue   : unsigned(31 downto 0); 
+   signal msr_value            : unsigned(31 downto 0);
+   signal msr_writebackvalue   : unsigned(31 downto 0);
+   signal msr_thumb_will_change : std_logic := '0';
    
    -- savestates
    signal SAVESTATE_PC : std_logic_vector(31 downto 0) := (others => '0');
@@ -648,7 +650,7 @@ begin
    PC_in_BIOS <= '1' when bus_fetch_Adr(27 downto 24) = x"0" else '0';
    jump_out   <= jump;
 
-   process (clk100) 
+   process (clk100)
       variable execute_skip : std_logic;
    begin
       if rising_edge(clk100) then
@@ -2080,10 +2082,11 @@ begin
    end process;
    
    -- calc
-   process (clk100) 
+   process (clk100)
       variable new_pc_var  : unsigned(31 downto 0);
       variable new_value   : unsigned(31 downto 0);
       variable firstbitpos : integer range 0 to 15;
+      variable mul_low_sum : unsigned(32 downto 0);
    begin
    
       if (rising_edge(clk100)) then
@@ -2433,7 +2436,11 @@ begin
                      
                      when MULADDLOW =>
                         if (execute_mul_useadd = '1') then
-                           mul_result         <= mul_result + mul_opaddlow;
+                           mul_low_sum := ('0' & mul_result(31 downto 0)) + ('0' & mul_opaddlow);
+                           mul_result(31 downto 0) <= mul_low_sum(31 downto 0);
+                           mul_low_carry(0 downto 0) <= mul_low_sum(32 downto 32);
+                        else
+                           mul_low_carry <= "0";
                         end if;
                         if (execute_mul_long = '1') then
                            mul_stage <= MULADDHIGH;
@@ -2444,7 +2451,7 @@ begin
                         end if;
                      
                      when MULADDHIGH =>
-                        mul_result <= mul_result + (mul_opaddhigh & x"00000000");
+                        mul_result(63 downto 32) <= mul_result(63 downto 32) + mul_opaddhigh + mul_low_carry;
                         if (execute_updateflags = '1') then
                            mul_stage <= MULSETFLAGS;
                         else
@@ -2521,8 +2528,18 @@ begin
                         if (execute_start = '1') then
                            if (execute_alu_use_immi = '1') then
                               msr_value <= execute_immidiate;
+                              if (execute_Rn_op1(0) = '1' and cpu_mode /= CPUMODE_USER and execute_immidiate(5) /= thumbmode) then
+                                 msr_thumb_will_change <= '1';
+                              else
+                                 msr_thumb_will_change <= '0';
+                              end if;
                            else
                               msr_value <= regs(to_integer(unsigned(execute_Rm_op2)));
+                              if (execute_Rn_op1(0) = '1' and cpu_mode /= CPUMODE_USER and regs(to_integer(unsigned(execute_Rm_op2)))(5) /= thumbmode) then
+                                 msr_thumb_will_change <= '1';
+                              else
+                                 msr_thumb_will_change <= '0';
+                              end if;
                            end if;
                            msr_writebackvalue <= regs(17);
                            if (execute_psr_with_spsr = '1') then
@@ -2574,7 +2591,7 @@ begin
                         Flag_Zero          <= new_value(30);
                         Flag_Carry         <= new_value(29);
                         Flag_V_Overflow    <= new_value(28);
-                        if (thumbmode /= new_value(5)) then
+                        if (msr_thumb_will_change = '1') then
                            new_pc             <= execute_PC;
                            jump               <= '1';
                         else

@@ -99,20 +99,23 @@ jobs:
           name: timing
           path: timing.txt
 
+      - name: Check custom STA reports
+        if: always()
+        run: |
+          echo "=== Custom STA reports ==="
+          ls -la build_output/reports/ 2>/dev/null || echo "No custom STA reports directory found"
+          echo "=== Output files ==="
+          ls -la src/fpga/build/output_files/*.rpt src/fpga/build/output_files/*.summary 2>/dev/null || true
+
       - name: Upload reports
-        if: success()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: reports
           path: |
             src/fpga/build/output_files/ap_core.fit.summary
+            src/fpga/build/output_files/ap_core.fit.rpt
             src/fpga/build/output_files/ap_core.sta.summary
+            src/fpga/build/output_files/ap_core.sta.rpt
             src/fpga/build/output_files/ap_core.flow.rpt
             build_output/reports/
-
-      - name: Upload output_files on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-output
-          path: src/fpga/build/output_files/

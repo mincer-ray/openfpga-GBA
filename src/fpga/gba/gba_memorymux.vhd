@@ -199,6 +199,8 @@ architecture arch of gba_memorymux is
    -- minicache
    signal sdram_addr_buf     : std_logic_vector(21 downto 0) := (others => '1');
    signal sdram_data_buf     : std_logic_vector(63 downto 0);
+   signal sdram_buf_hit_16   : std_logic := '0';
+   signal sdram_buf_hit_32   : std_logic := '0';
    signal sdram_read_done_1  : std_logic := '0';
    
    -- gamepak cache
@@ -460,6 +462,17 @@ begin
                   else
                      upper_nonzero <= '0';
                   end if;
+                  -- Pre-compute SDRAM buffer hit to break critical path in ADDR_DECODE
+                  if (sdram_addr_buf = mem_bus_Adr(24 downto 3) and mem_bus_Adr(0) = '0' and mem_bus_acc = ACCESS_16BIT) then
+                     sdram_buf_hit_16 <= '1';
+                  else
+                     sdram_buf_hit_16 <= '0';
+                  end if;
+                  if (sdram_addr_buf = mem_bus_Adr(24 downto 3) and mem_bus_Adr(1 downto 0) = "00" and mem_bus_acc = ACCESS_32BIT) then
+                     sdram_buf_hit_32 <= '1';
+                  else
+                     sdram_buf_hit_32 <= '0';
+                  end if;
                   state <= ADDR_DECODE;
                end if;
 
@@ -531,7 +544,7 @@ begin
                         when x"8" | x"9" | x"A" | x"B" | x"C" =>
                            if (unsigned(adr_save(24 downto 2)) >= unsigned(MaxPakAddr)) then
                               state       <= READAFTERPAK;
-                           elsif (sdram_addr_buf = adr_save(24 downto 3) and adr_save(0) = '0' and acc_save = ACCESS_16BIT) then
+                           elsif (sdram_buf_hit_16 = '1') then
                               mem_bus_done <= '1';
                               state        <= IDLE;
                               if (adr_save(2) = '0') then
@@ -547,7 +560,7 @@ begin
                                     mem_bus_din <= x"0000" & sdram_data_buf(63 downto 48);
                                  end if;
                               end if;
-                           elsif (sdram_addr_buf = adr_save(24 downto 3) and adr_save(1 downto 0) = "00" and acc_save = ACCESS_32BIT) then
+                           elsif (sdram_buf_hit_32 = '1') then
                               mem_bus_done <= '1';
                               state        <= IDLE;
                               if (adr_save(2) = '0') then

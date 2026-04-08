@@ -25,6 +25,7 @@
 
 module sdram_pocket (
     input  wire        clk,          // ~100 MHz system clock
+    input  wire        clk_sdram,    // ~100 MHz, ~248° phase — DDR-forwarded to dram_clk pin
     input  wire        reset,        // Active-high reset (active while PLL not locked)
 
     // Ch1: ROM reads (active during gameplay)
@@ -407,22 +408,26 @@ always @(posedge clk) begin
 end
 
 // ============================================================
-// DDR Clock Output (0deg outclock -> 180deg SDRAM_CLK, matches MiSTer)
+// SDRAM Clock Output — DDR clock forwarding through IOE
 // ============================================================
+// altddio_out routes the clock through the IOE's dedicated DDR output
+// register, eliminating ~4.7ns of IC routing delay vs. a plain assign.
+// datain_h=1 / datain_l=0 produces a clock that follows clk_sdram
+// with only the IOE tCO delay (~0.5ns).
 
 altddio_out #(
-    .extend_oe_disable   ("OFF"),
-    .intended_device_family ("Cyclone V"),
-    .invert_output       ("OFF"),
-    .lpm_hint            ("UNUSED"),
-    .lpm_type            ("altddio_out"),
-    .oe_reg              ("UNREGISTERED"),
-    .power_up_high       ("OFF"),
-    .width               (1)
-) sdramclk_ddr (
-    .datain_h  (1'b0),
-    .datain_l  (1'b1),
-    .outclock  (clk),
+    .extend_oe_disable("OFF"),
+    .intended_device_family("Cyclone V"),
+    .invert_output("OFF"),
+    .lpm_hint("UNUSED"),
+    .lpm_type("altddio_out"),
+    .oe_reg("UNREGISTERED"),
+    .power_up_high("OFF"),
+    .width(1)
+) sdram_clk_fwd (
+    .datain_h  (1'b1),
+    .datain_l  (1'b0),
+    .outclock  (clk_sdram),
     .dataout   (dram_clk),
     .aclr      (1'b0),
     .aset      (1'b0),
