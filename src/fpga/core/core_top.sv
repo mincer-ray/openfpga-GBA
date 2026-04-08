@@ -1378,17 +1378,28 @@ synch_3 display_vblank_sync (
 );
 
 reg frame_allow = 1;
+reg frame_requested = 0;
 reg display_vblank_prev = 0;
 
 always @(posedge clk_sys) begin
     display_vblank_prev <= display_vblank_s;
     if (~fast_forward) begin
-        frame_allow <= 1'b1;
+        frame_allow     <= 1'b1;
+        frame_requested <= 1'b0;
     end else begin
-        if (gpu_vblank_trigger && frame_allow)
-            frame_allow <= 1'b0;
-        if (display_vblank_s && ~display_vblank_prev)  // rising edge = display entered vblank
-            frame_allow <= 1'b1;
+        // Display entered vblank (done reading): request the next complete frame
+        if (display_vblank_s && ~display_vblank_prev)
+            frame_requested <= 1'b1;
+
+        // GPU hit vblank (frame boundary): transition allow/request state
+        if (gpu_vblank_trigger) begin
+            if (frame_allow)
+                frame_allow <= 1'b0;        // just finished writing a frame, stop
+            if (frame_requested) begin
+                frame_allow     <= 1'b1;    // allow the NEXT complete frame
+                frame_requested <= 1'b0;
+            end
+        end
     end
 end
 
