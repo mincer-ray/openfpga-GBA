@@ -51,8 +51,7 @@ architecture arch of gba_serial is
       MULTI_PHASE_CHILD_RX,
       MULTI_PHASE_CHILD_REPLY_DELAY,
       MULTI_PHASE_CHILD_TX,
-      MULTI_PHASE_CHILD_WAIT_PARENT_END,
-      MULTI_PHASE_NO_ROLE_TIMEOUT
+      MULTI_PHASE_CHILD_WAIT_PARENT_END
    );
 
    function pack_multi_slots(
@@ -599,26 +598,6 @@ begin
 
                   when MULTI_PHASE_CHILD_WAIT_PARENT_END =>
                      null;
-
-                  when MULTI_PHASE_NO_ROLE_TIMEOUT =>
-                     -- No valid role detected at transfer start. Simulate the
-                     -- timeout that real hardware exhibits when no other GBAs
-                     -- are connected. After multi_endlimit cycles, report
-                     -- error and return to idle.
-                     if (new_exact_cycle = '1') then
-                        if (multi_endcount >= multi_endlimit) then
-                           multi_phase    <= MULTI_PHASE_IDLE;
-                           multi_error    <= '1';
-                           multi_id_valid           <= '0';
-                           multi_is_parent          <= '0';
-                           multi_role_valid         <= '0';
-                           multi_role_sample_parent <= '0';
-                           multi_role_stable        <= 0;
-                           multi_endcount <= 0;
-                        else
-                           multi_endcount <= multi_endcount + 1;
-                        end if;
-                     end if;
                end case;
             end if;
 
@@ -669,12 +648,11 @@ begin
                            int_clk_phase  <= '0';
 
                            if (bitcount = transfer_bits) then
-                              -- Keep normal-mode IRQs masked for now. On Pocket
-                              -- hardware games probe this path often enough
-                              -- during ordinary gameplay that our current
-                              -- completion model still causes audible
-                              -- regressions, while multiplayer IRQs remain the
-                              -- one we need for actual link-cable support.
+                              -- Normal-mode serial IRQs stay masked because
+                              -- Pocket software probes this path during normal
+                              -- gameplay often enough to cause audible
+                              -- regressions, whereas multiplayer IRQs are
+                              -- still required for real link-cable support.
                               SIO_start    <= '0';
                               received_data <= shift_reg(30 downto 0) & serial_data_in;
                               serial_clk_out <= '1';
