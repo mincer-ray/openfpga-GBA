@@ -51,7 +51,8 @@ architecture arch of gba_serial is
       MULTI_PHASE_CHILD_RX,
       MULTI_PHASE_CHILD_REPLY_DELAY,
       MULTI_PHASE_CHILD_TX,
-      MULTI_PHASE_CHILD_WAIT_PARENT_END
+      MULTI_PHASE_CHILD_WAIT_PARENT_END,
+      MULTI_PHASE_NO_ROLE_TIMEOUT
    );
 
    function pack_multi_slots(
@@ -88,7 +89,8 @@ architecture arch of gba_serial is
 
    -- SIODATA32 readback — serves reads for SIODATA32 (0x120, 32-bit),
    -- SIOMULTI0 (0x120, lower 16-bit), and SIOMULTI1 (0x122, upper 16-bit)
-   signal REG_SIODATA32_READBACK : std_logic_vector(31 downto 0) := (others => '0');
+   signal REG_SIODATA32_READBACK : std_logic_vector(31 downto 0) := (others => '1');
+   signal SIODATA32_READBACK_BUS : std_logic_vector(31 downto 0) := (others => '1');
    constant REG_SIOMULTI23_READBACK : std_logic_vector(31 downto 0) := x"FFFFFFFF";
    signal SIODATA32_written      : std_logic;
    signal SIOMULTI0_written      : std_logic;
@@ -151,6 +153,8 @@ architecture arch of gba_serial is
    signal multi_id_valid : std_logic := '0';
    signal multi_si_seen_low : std_logic := '0';
    signal multi_child_finish_ok : std_logic;
+   signal normal_disconnected_idle : std_logic;
+   signal multi_disconnected_idle  : std_logic;
 
    -- SC input synchronizer for child to detect parent's SC going LOW
    signal sc_sync         : std_logic_vector(2 downto 0) := (others => '1');
@@ -165,11 +169,11 @@ architecture arch of gba_serial is
 begin
 
    -- SIODATA32 at 0x120 (32-bit) — also serves SIOMULTI0 (lower 16) and SIOMULTI1 (upper 16)
-   iSIODATA32   : entity work.eProcReg_gba generic map (SIODATA32  ) port map  (clk100, gb_bus, REG_SIODATA32_READBACK, REG_SIODATA32, SIODATA32_written);
+   iSIODATA32   : entity work.eProcReg_gba generic map (SIODATA32  ) port map  (clk100, gb_bus, SIODATA32_READBACK_BUS, REG_SIODATA32, SIODATA32_written);
    -- The register helper only matches exact addresses, so multiplayer reads
    -- still need distinct endpoints at 0x120 and 0x122.
-   iSIOMULTI0   : entity work.eProcReg_gba generic map (SIOMULTI0  ) port map  (clk100, gb_bus, REG_SIODATA32_READBACK(15 downto 0), REG_SIOMULTI0, SIOMULTI0_written);
-   iSIOMULTI1   : entity work.eProcReg_gba generic map (SIOMULTI1  ) port map  (clk100, gb_bus, REG_SIODATA32_READBACK(31 downto 16), REG_SIOMULTI1, SIOMULTI1_written);
+   iSIOMULTI0   : entity work.eProcReg_gba generic map (SIOMULTI0  ) port map  (clk100, gb_bus, SIODATA32_READBACK_BUS(15 downto 0), REG_SIOMULTI0, SIOMULTI0_written);
+   iSIOMULTI1   : entity work.eProcReg_gba generic map (SIOMULTI1  ) port map  (clk100, gb_bus, SIODATA32_READBACK_BUS(31 downto 16), REG_SIOMULTI1, SIOMULTI1_written);
    -- Emerald reads REG_SIOMLT_RECV as a 64-bit block. In 2-player mode slots
    -- 2 and 3 should therefore read back as 0xFFFF via a full 32-bit access at
    -- 0x124, not only through the separate 16-bit aliases.
@@ -211,18 +215,39 @@ begin
    -- period. A brief SI glitch on the slave side should not be enough to flip
    -- the whole session into the parent path.
    multi_parent_observed <= '1' when si_sync = "000" and sc_sync = "111" and sd_sync = "111" else '0';
+   -- Preserve the old stubbed "no cable" behavior while the link port is idle
+   -- and we still have no evidence of a peer. That prevents games from
+   -- mistaking an unplugged port for a ready-but-idle link session.
+   normal_disconnected_idle <= '1' when multi_mode = '0' and SIO_start = '0' and si_sync(1) = '1' else '0';
+   multi_disconnected_idle  <= '1' when multi_mode = '1' and
+                                        multi_phase = MULTI_PHASE_IDLE and
+                                        multi_role_valid = '0' and
+                                        multi_parent_observed = '0' and
+                                        sc_sync(1) = '1' else
+                               '0';
+   SIODATA32_READBACK_BUS   <= (others => '1') when normal_disconnected_idle = '1' or
+                                                multi_disconnected_idle = '1' else
+                               REG_SIODATA32_READBACK;
 
    -- SIOCNT readback: different layout for Normal vs Multi-Player mode
    SIOCNT_READBACK <=
+      -- Idle/disconnected: match the previous no-link stub until a peer is
+      -- actually observed on the bus.
+      REG_SIOCNT(15 downto 8) & '0' & '1' & REG_SIOCNT(5 downto 0)
+      when multi_mode = '1' and multi_disconnected_idle = '1' else
       -- Multi-player: [15:14]=reg, [13]=1, [12]=0, [11:8]=reg, [7]=busy, [6]=error,
       --               [5:4]=ID, [3]=all-ready, [2]=SI(0=parent,1=child), [1:0]=baud
       REG_SIOCNT(15 downto 8) & multi_busy_state & multi_error & multi_id_state & multi_ready_state & multi_role_bit & REG_SIOCNT(1 downto 0)
       when multi_mode = '1' else
-      -- Normal: [15:8]=reg, [7]=start, [6:3]=reg, [2]=SI pin, [1:0]=reg
+      REG_SIOCNT(15 downto 8) & '0' & '1' & REG_SIOCNT(5 downto 0)
+      when normal_disconnected_idle = '1' else
+      -- Normal: [15:8]=reg, [7]=start, [6]=error(1=no cable), [5:3]=reg, [2]=SI pin, [1:0]=reg
       REG_SIOCNT(15 downto 8) & SIO_start & REG_SIOCNT(6 downto 3) & serial_data_in & REG_SIOCNT(1 downto 0);
 
    -- RCNT readback: lower bits reflect pin states in multi-player mode
    RCNT_READBACK <=
+      REG_RCNT
+      when multi_disconnected_idle = '1' else
       REG_RCNT(15 downto 4) & multi_so_state & multi_si_state & multi_sd_state & multi_sc_state
       when multi_mode = '1' else
       REG_RCNT;
@@ -239,9 +264,11 @@ begin
                      sc_sync(1);
    multi_sd_state <= multi_sd_out_r when multi_sending = '1' else sd_sync(1);
    -- SIOCNT[3] should reflect the shared SD ready line while the bus is idle,
-   -- even before role detection has fully settled.
+   -- but after a failed transfer with no confirmed role we should stop
+   -- advertising the bus as ready until new link evidence appears.
    multi_ready_state <= '1' when multi_phase = MULTI_PHASE_IDLE and
-                                 sd_sync(1) = '1' else
+                                 sd_sync(1) = '1' and
+                                 not (multi_error = '1' and multi_role_valid = '0') else
                         '0';
    -- Report the master-visible grounded SI level once the role is latched so
    -- software reads the expected parent/child state even while a transfer is in
@@ -396,6 +423,11 @@ begin
             elsif (multi_is_parent = '0' and sc_rise = '1' and multi_phase /= MULTI_PHASE_IDLE) then
                if (multi_child_finish_ok = '0' or multi_si_seen_low = '0') then
                   multi_error <= '1';
+                  multi_id_valid           <= '0';
+                  multi_is_parent          <= '0';
+                  multi_role_valid         <= '0';
+                  multi_role_sample_parent <= '0';
+                  multi_role_stable        <= 0;
                else
                   multi_id_valid <= '1';
                end if;
@@ -406,7 +438,9 @@ begin
                multi_endcount <= 0;
                multi_sd_out_r <= '1';
                multi_si_seen_low <= '0';
-               if (REG_SIOCNT(14) = '1') then
+               if (REG_SIOCNT(14) = '1' and
+                   multi_child_finish_ok = '1' and
+                   multi_si_seen_low = '1') then
                   IRP_Serial <= '1';
                end if;
             else
@@ -452,13 +486,15 @@ begin
                         if (multi_endcount >= multi_endlimit) then
                            multi_phase    <= MULTI_PHASE_IDLE;
                            multi_error    <= '1';
+                           multi_id_valid           <= '0';
+                           multi_is_parent          <= '0';
+                           multi_role_valid         <= '0';
+                           multi_role_sample_parent <= '0';
+                           multi_role_stable        <= 0;
                            multi_cycles   <= (others => '0');
                            multi_rx_first <= '0';
                            multi_endcount <= 0;
                            multi_sd_out_r <= '1';
-                           if (REG_SIOCNT(14) = '1') then
-                              IRP_Serial <= '1';
-                           end if;
                         else
                            multi_endcount <= multi_endcount + 1;
                         end if;
@@ -546,8 +582,14 @@ begin
                            multi_sd_out_r <= '1';
                            if (multi_error = '0') then
                               multi_id_valid <= '1';
+                           else
+                              multi_id_valid           <= '0';
+                              multi_is_parent          <= '0';
+                              multi_role_valid         <= '0';
+                              multi_role_sample_parent <= '0';
+                              multi_role_stable        <= 0;
                            end if;
-                           if (REG_SIOCNT(14) = '1') then
+                           if (REG_SIOCNT(14) = '1' and multi_error = '0') then
                               IRP_Serial <= '1';
                            end if;
                         else
@@ -557,6 +599,26 @@ begin
 
                   when MULTI_PHASE_CHILD_WAIT_PARENT_END =>
                      null;
+
+                  when MULTI_PHASE_NO_ROLE_TIMEOUT =>
+                     -- No valid role detected at transfer start. Simulate the
+                     -- timeout that real hardware exhibits when no other GBAs
+                     -- are connected. After multi_endlimit cycles, report
+                     -- error and return to idle.
+                     if (new_exact_cycle = '1') then
+                        if (multi_endcount >= multi_endlimit) then
+                           multi_phase    <= MULTI_PHASE_IDLE;
+                           multi_error    <= '1';
+                           multi_id_valid           <= '0';
+                           multi_is_parent          <= '0';
+                           multi_role_valid         <= '0';
+                           multi_role_sample_parent <= '0';
+                           multi_role_stable        <= 0;
+                           multi_endcount <= 0;
+                        else
+                           multi_endcount <= multi_endcount + 1;
+                        end if;
+                     end if;
                end case;
             end if;
 
@@ -607,9 +669,12 @@ begin
                            int_clk_phase  <= '0';
 
                            if (bitcount = transfer_bits) then
-                              if (REG_SIOCNT(14) = '1') then
-                                 IRP_Serial <= '1';
-                              end if;
+                              -- Keep normal-mode IRQs masked for now. On Pocket
+                              -- hardware games probe this path often enough
+                              -- during ordinary gameplay that our current
+                              -- completion model still causes audible
+                              -- regressions, while multiplayer IRQs remain the
+                              -- one we need for actual link-cable support.
                               SIO_start    <= '0';
                               received_data <= shift_reg(30 downto 0) & serial_data_in;
                               serial_clk_out <= '1';
@@ -630,9 +695,6 @@ begin
                      shift_reg <= shift_reg(30 downto 0) & serial_data_in;
 
                      if (bitcount = transfer_bits) then
-                        if (REG_SIOCNT(14) = '1') then
-                           IRP_Serial <= '1';
-                        end if;
                         SIO_start     <= '0';
                         received_data <= shift_reg(30 downto 0) & serial_data_in;
                      else
@@ -685,24 +747,37 @@ begin
                   REG_SIODATA32_READBACK <= (others => '1');
 
                elsif (REG_RCNT(15) = '0' and REG_SIOCNT(13) = '0') then
-                  -- Normal mode transfer start
-                  SIO_start     <= '1';
-                  bitcount      <= 0;
-                  cycles        <= (others => '0');
-                  int_clk_phase <= '0';
+                  -- Normal mode transfer start. In master mode, don't launch a
+                  -- transfer unless SI already shows a ready peer. With no
+                  -- cable attached the line is HIGH/idle, and treating that as
+                  -- an immediate transfer completion creates spurious link IRQs.
+                  if (REG_SIOCNT(0) = '0' or si_sync(1) = '0') then
+                     SIO_start     <= '1';
+                     bitcount      <= 0;
+                     cycles        <= (others => '0');
+                     int_clk_phase <= '0';
 
-                  if (REG_SIOCNT(12) = '1') then
-                     transfer_bits <= 31;
-                     shift_reg     <= REG_SIODATA32_READBACK;
-                  else
-                     transfer_bits <= 7;
-                     shift_reg     <= x"000000" & REG_SIODATA8(7 downto 0);
-                  end if;
+                     if (REG_SIOCNT(12) = '1') then
+                        transfer_bits <= 31;
+                        shift_reg     <= REG_SIODATA32_READBACK;
+                     else
+                        transfer_bits <= 7;
+                        shift_reg     <= x"000000" & REG_SIODATA8(7 downto 0);
+                     end if;
 
-                  if (REG_SIOCNT(12) = '1') then
-                     serial_data_out <= REG_SIODATA32_READBACK(31);
+                     if (REG_SIOCNT(12) = '1') then
+                        serial_data_out <= REG_SIODATA32_READBACK(31);
+                     else
+                        serial_data_out <= REG_SIODATA8(7);
+                     end if;
                   else
-                     serial_data_out <= REG_SIODATA8(7);
+                     SIO_start      <= '0';
+                     bitcount       <= 0;
+                     cycles         <= (others => '0');
+                     int_clk_phase  <= '0';
+                     received_data  <= (others => '1');
+                     serial_clk_out <= '1';
+                     serial_data_out <= REG_SIOCNT(3);
                   end if;
                end if;
             end if;
