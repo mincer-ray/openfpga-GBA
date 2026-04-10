@@ -12,9 +12,11 @@ package pReg_gba_serial is
    constant SIODATA32   : regmap_type := (16#120#,  31,      0,        1,        0,   readwrite); -- SIO Data (Normal-32bit Mode; shared with below)   4    R/W 
    constant SIOMULTI0   : regmap_type := (16#120#,  15,      0,        1,        0,   readwrite); -- SIO Data 0 (Parent)    (Multi-Player Mode)        2    R/W 
    constant SIOMULTI1   : regmap_type := (16#122#,  15,      0,        1,        0,   readwrite); -- SIO Data 1 (1st Child) (Multi-Player Mode)        2    R/W 
+   constant SIOMULTI23  : regmap_type := (16#124#,  31,      0,        1,        0,   readwrite); -- SIO Data 2+3 shared 32-bit view for 64-bit reads  4    R/W 
    constant SIOMULTI2   : regmap_type := (16#124#,  15,      0,        1,        0,   readwrite); -- SIO Data 2 (2nd Child) (Multi-Player Mode)        2    R/W 
    constant SIOMULTI3   : regmap_type := (16#126#,  15,      0,        1,        0,   readwrite); -- SIO Data 3 (3rd Child) (Multi-Player Mode)        2    R/W 
    constant SIOCNT      : regmap_type := (16#128#,  15,      0,        1,        0,   readwrite); -- SIO Control Register                              2    R/W 
+   constant SIOCNT_SEND : regmap_type := (16#128#,  31,      0,        1,        0,   readwrite); -- SIOCNT (low) + SIOMLT_SEND/SIODATA8 (high)        4    R/W
    constant SIOMLT_SEND : regmap_type := (16#12A#,  15,      0,        1,        0,   readwrite); -- SIO Data (Local of MultiPlayer; shared below)     2    R/W 
    constant SIODATA8    : regmap_type := (16#12A#,  15,      0,        1,        0,   readwrite); -- SIO Data (Normal-8bit and UART Mode)              2    R/W 
  --constant -           : regmap_type := (16#12C#,  15,      0,        1,        0,   readwrite); -- Not used                                               -   

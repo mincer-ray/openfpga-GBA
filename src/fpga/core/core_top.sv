@@ -246,15 +246,33 @@ assign cart_pin30_pwroff_reset = 1'b0;
 assign cart_tran_pin31 = 1'bz;
 assign cart_tran_pin31_dir = 1'b0;
 
-// link port is unused, set to input only to be safe
-assign port_tran_so = 1'bz;
-assign port_tran_so_dir = 1'b0;
-assign port_tran_si = 1'bz;
+// ---- Link Cable ----
+// Normal mode: SO=output, SI=input, SCK=bidirectional (master/slave)
+// Multi-player mode: SD=half-duplex UART, SC=handshake, SO/SI=terminal detect
+wire serial_data_out;   // SO pin (Normal mode)
+wire serial_clk_out;    // SCK output (Normal mode master)
+wire serial_int_clock;  // Normal mode SCK direction
+wire serial_sd_out;     // SD data output (Multi-player UART)
+wire serial_sd_dir;     // SD direction (Multi-player)
+wire serial_sc_out;     // SC handshake output (Multi-player)
+wire serial_sc_dir;     // SC direction (Multi-player)
+
+// SO pin: always output
+assign port_tran_so     = serial_data_out;
+assign port_tran_so_dir = 1'b1;
+
+// SI pin: always input
+assign port_tran_si     = 1'bz;
 assign port_tran_si_dir = 1'b0;
-assign port_tran_sck = 1'bz;
-assign port_tran_sck_dir = 1'b0;
-assign port_tran_sd = 1'bz;
-assign port_tran_sd_dir = 1'b0;
+
+// SCK/SC pin: driven by Normal mode (serial_int_clock) OR Multi-player (serial_sc_dir)
+assign port_tran_sck     = serial_sc_dir  ? serial_sc_out  :
+                           serial_int_clock ? serial_clk_out : 1'bz;
+assign port_tran_sck_dir = serial_sc_dir | serial_int_clock;
+
+// SD pin: driven by Multi-player mode UART, unused (input) in Normal mode
+assign port_tran_sd     = serial_sd_dir ? serial_sd_out : 1'bz;
+assign port_tran_sd_dir = serial_sd_dir;
 
 // ---- PSRAM Controller (EWRAM die 0 + Cart Saves die 1) ----
 // Memory map on cram0:
@@ -1336,9 +1354,9 @@ always @(posedge clk_74a) begin
     if (bridge_wr) begin
         casex (bridge_addr)
         32'hF0000000: reset_counter <= 14'd8000;  // ~108 us at 74.25 MHz
-        32'h80: ff_mode    <= bridge_wr_data[1:0];
-        32'h84: force_rtc  <= bridge_wr_data[0];
-        32'h88: turbo_mode <= bridge_wr_data[1:0];
+        32'h80: ff_mode        <= bridge_wr_data[1:0];
+        32'h84: force_rtc      <= bridge_wr_data[0];
+        32'h88: turbo_mode     <= bridge_wr_data[1:0];
         endcase
     end
 end
@@ -1623,6 +1641,19 @@ gba_top #(
     .KeyR                ( key_r ),
     .KeyL                ( key_l ),
     // AnalogTiltX/Y and Rumble removed (solar/gyro/tilt/rumble stripped)
+    // Link cable — Normal mode
+    .serial_data_out     ( serial_data_out ),
+    .serial_data_in      ( port_tran_si ),
+    .serial_clk_out      ( serial_clk_out ),
+    .serial_clk_in       ( port_tran_sck ),
+    .serial_int_clock    ( serial_int_clock ),
+    // Link cable — Multi-player mode
+    .serial_sd_out       ( serial_sd_out ),
+    .serial_sd_in        ( port_tran_sd ),
+    .serial_sd_dir       ( serial_sd_dir ),
+    .serial_sc_out       ( serial_sc_out ),
+    .serial_sc_in        ( port_tran_sck ),
+    .serial_sc_dir       ( serial_sc_dir ),
     // Debug (unused)
     .GBA_BusAddr         ( 28'd0 ),
     .GBA_BusRnW          ( 1'b0 ),

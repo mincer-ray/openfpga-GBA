@@ -94,7 +94,20 @@ entity gba_top is
       KeyR                  : in     std_logic;
       KeyL                  : in     std_logic;
       -- AnalogTiltX/Y and Rumble removed (solar/gyro/tilt/rumble stripped)
-      -- debug interface          
+      -- Link cable I/O — Normal mode (SO/SI/SCK)
+      serial_data_out       : out    std_logic;
+      serial_data_in        : in     std_logic;
+      serial_clk_out        : out    std_logic;
+      serial_clk_in         : in     std_logic;
+      serial_int_clock      : out    std_logic;
+      -- Link cable I/O — Multi-player mode (SD/SC)
+      serial_sd_out         : out    std_logic;
+      serial_sd_in          : in     std_logic;
+      serial_sd_dir         : out    std_logic;
+      serial_sc_out         : out    std_logic;
+      serial_sc_in          : in     std_logic;
+      serial_sc_dir         : out    std_logic;
+      -- debug interface
       GBA_BusAddr           : in     std_logic_vector(27 downto 0);
       GBA_BusRnW            : in     std_logic;
       GBA_BusACC            : in     std_logic_vector(1 downto 0);
@@ -115,7 +128,7 @@ entity gba_top is
       debug_cpu_mixed       : out    std_logic_vector(31 downto 0);
       debug_irq             : out    std_logic_vector(31 downto 0);
       debug_dma             : out    std_logic_vector(31 downto 0);
-      debug_mem             : out    std_logic_vector(31 downto 0)  
+      debug_mem             : out    std_logic_vector(31 downto 0)
    );
 end entity;
 
@@ -297,6 +310,7 @@ architecture arch of gba_top is
    signal IRP_LCDStat : std_logic;
    signal IRP_Timer   : std_logic_vector(3 downto 0);
    signal IRP_DMA     : std_logic_vector(3 downto 0);
+   signal IRP_Serial  : std_logic;
    signal IRP_Joypad  : std_logic;
    -- signal IRP_Gamepak : std_logic; -- not implemented
    
@@ -306,8 +320,6 @@ architecture arch of gba_top is
    signal new_exact_cycle : std_logic := '0';
    signal CyclesVsync     : unsigned(31 downto 0) := (others => '0');
    signal bench_slow      : integer range 0 to 1685375 := 0;
-   
-   
 begin 
 
    -- dummy modules
@@ -320,7 +332,19 @@ begin
       gb_bus           => gb_bus,
       new_cycles       => new_cycles,
       new_cycles_valid => new_cycles_valid,
-      IRP_Serial       => open
+      new_exact_cycle  => new_exact_cycle,
+      IRP_Serial       => IRP_Serial,
+      serial_data_out  => serial_data_out,
+      serial_data_in   => serial_data_in,
+      serial_clk_out   => serial_clk_out,
+      serial_clk_in    => serial_clk_in,
+      serial_int_clock => serial_int_clock,
+      serial_sd_out    => serial_sd_out,
+      serial_sd_in     => serial_sd_in,
+      serial_sd_dir    => serial_sd_dir,
+      serial_sc_out    => serial_sc_out,
+      serial_sc_in     => serial_sc_in,
+      serial_sc_dir    => serial_sc_dir
    );
 
    -- real modules
@@ -872,9 +896,9 @@ begin
          gbaon <= GBA_on;
    
          if (reset = '1') then -- reset
-   
+       
             IRPFLags <= SAVESTATE_IRP;
-   
+       
          elsif (gbaon = '1') then
          
             if (IF_written = '1') then
@@ -888,7 +912,7 @@ begin
             if (IRP_Timer(1) = '1') then IRPFLags( 4) <= '1'; end if;
             if (IRP_Timer(2) = '1') then IRPFLags( 5) <= '1'; end if;
             if (IRP_Timer(3) = '1') then IRPFLags( 6) <= '1'; end if;
-            -- IRP_Serial removed (no link cable on Pocket)
+            if (IRP_Serial = '1')   then IRPFLags( 7) <= '1'; end if;
             if (IRP_DMA(0) = '1')   then IRPFLags( 8) <= '1'; end if;
             if (IRP_DMA(1) = '1')   then IRPFLags( 9) <= '1'; end if;
             if (IRP_DMA(2) = '1')   then IRPFLags(10) <= '1'; end if;
@@ -976,8 +1000,3 @@ begin
    
 
 end architecture;
-
-
-
-
-
