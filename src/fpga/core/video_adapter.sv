@@ -36,7 +36,14 @@ module video_adapter (
     // Level sync outputs for Analogizer (high throughout sync period, not edge pulses)
     output wire        video_hs_lvl,
     output wire        video_vs_lvl,
-    output wire        video_ce_pix
+    output wire        video_ce_pix,
+
+    // Shared framebuffer read port for CRT/Analogizer output.
+    // Reads happen on vid_ce=0 cycles (Pocket uses vid_ce=1 cycles).
+    // Present address any time; data appears one cycle later on vid_ce=1.
+    input  wire [15:0] crt_rd_addr,
+    output reg  [17:0] crt_rd_data,
+    output wire        crt_rd_valid    // = vid_ce; crt_rd_data is latched when high
 );
 
     // === Raster Scan Timing Parameters ===
@@ -101,14 +108,33 @@ module video_adapter (
     wire vs_region = (v_count >= V_ACTIVE + V_FP) &
                      (v_count <  V_ACTIVE + V_FP + V_SYNC);
 
-    // === Port B: Framebuffer Read (clk_vid domain) ===
+    // === Port B: Framebuffer Read (clk_vid domain) — time-multiplexed ===
+    // vid_ce=1: Pocket reads its raster address.
+    // vid_ce=0: CRT reads its address (crt_rd_addr from gba_analogizer_video).
+    // Using one muxed address keeps this as a single M10K read port.
     wire [15:0] read_addr = v_count * H_ACTIVE + h_count;
 
+    wire [15:0] fb_rd_mux = vid_ce ? read_addr : crt_rd_addr;
+    reg  [17:0] fb_rd_raw;
+
+    always @(posedge clk_vid) begin
+        fb_rd_raw <= framebuffer[fb_rd_mux];
+    end
+
+    // Pocket: latch on vid_ce=0 (data from the previous vid_ce=1 Pocket read)
     reg [17:0] pixel_read;
     always @(posedge clk_vid) begin
-        if (active)
-            pixel_read <= framebuffer[read_addr];
+        if (!vid_ce)
+            pixel_read <= fb_rd_raw;
     end
+
+    // CRT: latch on vid_ce=1 (data from the previous vid_ce=0 CRT read)
+    always @(posedge clk_vid) begin
+        if (vid_ce)
+            crt_rd_data <= fb_rd_raw;
+    end
+
+    assign crt_rd_valid = vid_ce;
 
     // === Color Expansion: 6-bit -> 8-bit ===
     // Replicate top 2 bits into bottom 2 for full [0..255] range

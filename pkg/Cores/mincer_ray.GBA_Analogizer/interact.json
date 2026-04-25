@@ -83,10 +83,11 @@
         "id": 40,
         "type": "list",
         "enabled": true,
-        "address": "0xF7000000",
+        "address": "0xA0000000",
         "persist": true,
         "writeonly": true,
         "defaultval": 0,
+        "mask": "0xFFFFC3FF",
         "options": [
           {
             "name": "RGBS",
@@ -94,31 +95,31 @@
           },
           {
             "name": "RGsB",
-            "value": 1
+            "value": 1024
           },
           {
             "name": "Y/C NTSC",
-            "value": 3
+            "value": 3072
           },
           {
             "name": "Y/C PAL",
-            "value": 4
+            "value": 4096
           },
           {
             "name": "RGBS, Pocket OFF",
-            "value": 8
+            "value": 8192
           },
           {
             "name": "RGsB, Pocket OFF",
-            "value": 9
+            "value": 9216
           },
           {
             "name": "Y/C NTSC, Pocket OFF",
-            "value": 11
+            "value": 11264
           },
           {
             "name": "Y/C PAL, Pocket OFF",
-            "value": 12
+            "value": 12288
           }
         ]
       }

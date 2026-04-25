@@ -1329,14 +1329,9 @@ reg force_rtc = 0;        // 0 = Off, 1 = Force enable RTC/GPIO
 reg [1:0] turbo_mode = 0; // 0 = Disabled, 1 = Turbo A, 2 = Turbo B
 
 `ifdef ANALOGIZER_ENABLE
-// Analogizer settings — written by interact.json at 0xF7000000
-// [3:0]  analog_video_type: 0=RGBS,1=RGsB,2=YPbPr,3=Y/C NTSC,4=Y/C PAL,
-//                           5-7=Scandoubler, 8-15=same with Pocket OFF
-// [4]    conf_AB: 0=Conf.A (default), 1=Conf.B
-// [9:5]  game_cont_type: SNAC controller type (0=None)
-reg [3:0] analogizer_video_type = 4'h0;
-reg       analogizer_conf_ab    = 1'b0;
-reg [4:0] analogizer_snac_type  = 5'h0;
+// Analogizer settings — written by interact.json at 0xA0000000
+// bits[13:10] = video type: 0=RGBS,1=RGsB,3=Y/C NTSC,4=Y/C PAL,+8=Pocket OFF
+reg [13:0] analogizer_settings = 14'd0;
 `endif
 
 reg [13:0] reset_counter = 0;
@@ -1353,11 +1348,7 @@ always @(posedge clk_74a) begin
         32'h84: force_rtc  <= bridge_wr_data[0];
         32'h88: turbo_mode <= bridge_wr_data[1:0];
 `ifdef ANALOGIZER_ENABLE
-        32'hF7000000: begin
-            analogizer_video_type <= bridge_wr_data[3:0];
-            analogizer_conf_ab    <= bridge_wr_data[4];
-            analogizer_snac_type  <= bridge_wr_data[9:5];
-        end
+        32'hA0000000: analogizer_settings <= bridge_wr_data[13:0];
 `endif
         endcase
     end
@@ -1391,6 +1382,17 @@ wire [23:0] vid_rgb_int;
 wire        vid_de_int, vid_vs_int, vid_hs_int, vid_skip_int;
 wire        vid_hs_lvl, vid_vs_lvl, vid_ce_pix;
 
+// Shared framebuffer read port: gba_analogizer_video drives crt_rd_addr_w,
+// video_adapter time-multiplexes it on vid_ce=0 cycles and returns data
+// on vid_ce=1 cycles. Declared unconditionally so video_adapter ports are
+// always driven; crt_rd_addr_w is held at 0 when Analogizer is not active.
+wire [15:0] crt_rd_addr_w;
+wire [17:0] crt_rd_data_w;
+wire        crt_rd_valid_w;
+`ifndef ANALOGIZER_ENABLE
+assign crt_rd_addr_w = 16'd0;
+`endif
+
 video_adapter video_out (
     .clk_sys       ( clk_sys ),
     .clk_vid       ( clk_vid ),
@@ -1407,14 +1409,21 @@ video_adapter video_out (
     .video_skip    ( vid_skip_int ),
     .video_hs_lvl  ( vid_hs_lvl ),
     .video_vs_lvl  ( vid_vs_lvl ),
-    .video_ce_pix  ( vid_ce_pix )
+    .video_ce_pix  ( vid_ce_pix ),
+
+    .crt_rd_addr   ( crt_rd_addr_w ),
+    .crt_rd_data   ( crt_rd_data_w ),
+    .crt_rd_valid  ( crt_rd_valid_w )
 );
 
 `ifdef ANALOGIZER_ENABLE
-// Pocket OFF modes (analog_video_type[3] set) blank the Pocket screen.
-// analogizer_video_type is clk_74a domain; synchronise to clk_vid for gating.
-wire pocket_off_vid;
-synch_3 s_pocket_off (analogizer_video_type[3], pocket_off_vid, clk_vid);
+// analogizer_settings is in clk_74a domain; sync the full register to clk_vid.
+wire [13:0] analogizer_settings_s;
+synch_3 #(.WIDTH(14)) sync_analogizer_settings (
+    analogizer_settings, analogizer_settings_s, clk_vid);
+wire [3:0] analogizer_video_type = analogizer_settings_s[13:10];
+// Pocket OFF when bit[3] of video type is set (types 8-15)
+wire pocket_off_vid = analogizer_video_type[3];
 assign video_rgb  = pocket_off_vid ? 24'h0 : vid_rgb_int;
 assign video_de   = pocket_off_vid ? 1'b0  : vid_de_int;
 `else
@@ -1694,66 +1703,95 @@ gba_top #(
 
 `ifdef ANALOGIZER_ENABLE
 // ============================================================
-// Analogizer Video Output
-// Drives the cart_tran pins with RGB/sync for SCART/CRT output.
-// analog_video_type selects output format:
-//   0=RGBS  1=RGsB  2=YPbPr  3=Y/C NTSC  4=Y/C PAL
-//   5-7=Scandoubler  8-15=same modes with Pocket display off
+// Analogizer Video Output — CRT raster at 15.65 kHz / 59.73 Hz
+//
+// gba_analogizer_video generates CRT-compatible timing from a
+// duplicate framebuffer.  First build: TEST_PATTERN=1 to verify
+// CRT sync independent of framebuffer.  Change to 0 once locked.
 // ============================================================
 
-// CSync derived from level H/V sync signals (active-high)
-wire vid_csync;
-csync csync_gen (
-    .clk   (clk_vid),
-    .hsync (vid_hs_lvl),
-    .vsync (vid_vs_lvl),
-    .csync (vid_csync)
+wire [23:0] analog_rgb;
+wire        analog_hblank;
+wire        analog_vblank;
+wire        analog_blankn;
+wire        analog_hsync;
+wire        analog_vsync;
+wire        analog_csync;
+wire        analog_video_clk;
+wire        analog_ce_pix;
+
+gba_analogizer_video #(
+    .SYNC_ACTIVE_LOW (1'b1),
+    .TEST_PATTERN    (1'b0),
+    .H_ACTIVE        (448),
+    .H_FP            (8),
+    .H_SYNC          (40),
+    // H_BP = 536 - 448 - 8 - 40 = 40
+    // V: 50 top blank + 160 active + 49 front porch + 3 vsync = 262
+    .V_TOP           (50),
+    .V_FP            (49),
+    .V_SYNC          (3)
+) gba_crt (
+    .clk_vid      (clk_vid),
+    .reset        (~pll_core_locked),
+
+    .fb_rd_addr   (crt_rd_addr_w),
+    .fb_rd_data   (crt_rd_data_w),
+    .fb_rd_valid  (crt_rd_valid_w),
+
+    .rgb        (analog_rgb),
+    .hblank     (analog_hblank),
+    .vblank     (analog_vblank),
+    .blankn     (analog_blankn),
+    .hsync      (analog_hsync),
+    .vsync      (analog_vsync),
+    .csync      (analog_csync),
+    .video_clk  (analog_video_clk),
+    .ce_pix     (analog_ce_pix)
 );
 
 openFPGA_Pocket_Analogizer #(
-    .MASTER_CLK_FREQ (100_663_296),
-    .LINE_LENGTH     (308)
+    // clk_vid = 8.388608 MHz; H_TOTAL = 536 → 15.65 kHz
+    .MASTER_CLK_FREQ (8_388_608),
+    .LINE_LENGTH     (536)
 ) analogizer (
-    .i_clk              (clk_sys),
+    .i_clk              (clk_vid),
     .i_rst              (~pll_core_locked),
     .i_ena              (1'b1),
-    // Video
-    .video_clk          (clk_vid),
+    .video_clk          (analog_video_clk),
     .analog_video_type  (analogizer_video_type),
-    .R                  (vid_rgb_int[23:16]),
-    .G                  (vid_rgb_int[15:8]),
-    .B                  (vid_rgb_int[7:0]),
-    .Hblank             (~vid_de_int),
-    .Vblank             (~vid_de_int),
-    .BLANKn             (vid_de_int),
-    .Hsync              (vid_hs_lvl),
-    .Vsync              (vid_vs_lvl),
-    .Csync              (vid_csync),
-    // Y/C chroma — PAL when bits[2:0]==4 (covers types 4 and 12)
+    .R                  (analog_rgb[23:16]),
+    .G                  (analog_rgb[15:8]),
+    .B                  (analog_rgb[7:0]),
+    .Hblank             (analog_hblank),
+    .Vblank             (analog_vblank),
+    .BLANKn             (analog_blankn),
+    .Hsync              (analog_hsync),
+    .Vsync              (analog_vsync),
+    .Csync              (analog_csync),
+    // Y/C chroma phase increments for 8.388608 MHz master clock
+    // NTSC: round(3.579545 MHz / 8.388608 MHz × 2^40) = 0x6D3D320000
+    // PAL:  round(4.433618 MHz / 8.388608 MHz × 2^40) = 0x874DA40000
     .CHROMA_PHASE_INC   (analogizer_video_type[2:0] == 3'd4 ?
-                             40'd24351512 :   // PAL:  ~4.43361875 MHz @ 100.663 MHz master
-                             40'd21021786),   // NTSC: ~3.57954545 MHz @ 100.663 MHz master
+                             40'h874DA40000 :  // PAL
+                             40'h6D3D320000),  // NTSC
     .PALFLAG            (analogizer_video_type[2:0] == 3'd4),
-    // Scandoubler ports — unused in GBA stripped module, tied to safe values
-    .ce_pix             (vid_ce_pix),
+    .ce_pix             (analog_ce_pix),
     .scandoubler        (1'b0),
     .fx                 (3'd0),
-    // SNAC — Phase 1: disabled (game_cont_type=0 → None)
-    .conf_AB            (analogizer_conf_ab),
-    .game_cont_type     (analogizer_snac_type),
+    .conf_AB            (1'b0),
+    .game_cont_type     (5'd0),
     .p1_btn_state       (),
     .p1_joy_state       (),
     .p2_btn_state       (),
     .p2_joy_state       (),
     .p3_btn_state       (),
     .p4_btn_state       (),
-    // PSX rumble — unused
     .i_VIB_SW1          (2'b0),
     .i_VIB_DAT1         (8'b0),
     .i_VIB_SW2          (2'b0),
     .i_VIB_DAT2         (8'b0),
     .busy               (),
-    // Cartridge port — Analogizer controls all cart_tran pins
     .cart_tran_bank2        (cart_tran_bank2),
     .cart_tran_bank2_dir    (cart_tran_bank2_dir),
     .cart_tran_bank3        (cart_tran_bank3),
@@ -1767,7 +1805,6 @@ openFPGA_Pocket_Analogizer #(
     .cart_pin30_pwroff_reset(cart_pin30_pwroff_reset),
     .cart_tran_pin31        (cart_tran_pin31),
     .cart_tran_pin31_dir    (cart_tran_pin31_dir),
-    // Debug — unused
     .DBG_TX             (),
     .o_stb              ()
 );

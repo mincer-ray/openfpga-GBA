@@ -839,6 +839,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE ../pocket/data_unloader.sv
 
 # Phase 4: Video, Audio & Input
 set_global_assignment -name SYSTEMVERILOG_FILE ../core/video_adapter.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../core/gba_analogizer_video.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../pocket/audio_mixer.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../pocket/sound_i2s.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../pocket/sync_fifo.sv
