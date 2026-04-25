@@ -1,0 +1,41 @@
+{
+  "video": {
+    "magic": "APF_VER_1",
+    "scaler_modes": [
+      {
+        "width": 240,
+        "height": 160,
+        "aspect_w": 3,
+        "aspect_h": 2,
+        "rotation": 0,
+        "mirror": 0
+      }
+    ],
+    "display_modes": [
+      {
+        "id": "0x41"
+      },
+      {
+        "id": "0x42"
+      },
+      {
+        "id": "0x10"
+      },
+      {
+        "id": "0x20"
+      },
+      {
+        "id": "0x30"
+      },
+      {
+        "id": "0x40"
+      },
+      {
+        "id": "0xE0"
+      },
+      {
+        "id": "0xE1"
+      }
+    ]
+  }
+}

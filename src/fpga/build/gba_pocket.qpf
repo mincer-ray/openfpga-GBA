@@ -19,14 +19,15 @@
 #
 # Quartus Prime
 # Version 21.1.1 Build 850 06/23/2022 SJ Lite Edition
-# Date created = 21:25:37  March 01, 2026
+# Date created = 07:13:11  April 25, 2026
 #
 # -------------------------------------------------------------------------- #
 
 QUARTUS_VERSION = "21.1"
-DATE = "21:25:37  March 01, 2026"
+DATE = "07:13:11  April 25, 2026"
 
 # Revisions
 
+PROJECT_REVISION = "ap_core_analogizer"
 PROJECT_REVISION = "ap_core"
 PROJECT_REVISION = "gba_pocket"

@@ -31,7 +31,12 @@ module video_adapter (
     output reg         video_de,
     output reg         video_vs,
     output reg         video_hs,
-    output reg         video_skip
+    output reg         video_skip,
+
+    // Level sync outputs for Analogizer (high throughout sync period, not edge pulses)
+    output wire        video_hs_lvl,
+    output wire        video_vs_lvl,
+    output wire        video_ce_pix
 );
 
     // === Raster Scan Timing Parameters ===
@@ -150,5 +155,11 @@ module video_adapter (
             video_skip <= ~vid_ce;
         end
     end
+
+    // Level sync: high throughout the sync region (not edge pulses).
+    // hs_d1/vs_d1 are already registered level signals in the pipeline.
+    assign video_hs_lvl = hs_d1;
+    assign video_vs_lvl = vs_d1;
+    assign video_ce_pix = vid_ce;
 
 endmodule

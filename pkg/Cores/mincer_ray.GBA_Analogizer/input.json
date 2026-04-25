@@ -1,0 +1,20 @@
+{
+  "input": {
+    "magic": "APF_VER_1",
+    "controllers": [
+      {
+        "type": "default",
+        "mappings": [
+          { "id": 0, "name": "A", "key": "pad_btn_a" },
+          { "id": 1, "name": "B", "key": "pad_btn_b" },
+          { "id": 2, "name": "Start", "key": "pad_btn_start" },
+          { "id": 3, "name": "Select", "key": "pad_btn_select" },
+          { "id": 4, "name": "L", "key": "pad_trig_l" },
+          { "id": 5, "name": "R", "key": "pad_trig_r" },
+          { "id": 6, "name": "Fast Forward", "key": "pad_btn_y" },
+          { "id": 7, "name": "Turbo", "key": "pad_btn_x" }
+        ]
+      }
+    ]
+  }
+}

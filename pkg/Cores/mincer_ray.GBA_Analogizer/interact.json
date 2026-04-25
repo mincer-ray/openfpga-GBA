@@ -1,0 +1,128 @@
+{
+  "interact": {
+    "magic": "APF_VER_1",
+    "variables": [
+      {
+        "name": "Reset Core",
+        "id": 10,
+        "type": "action",
+        "enabled": true,
+        "address": "0xF0000000",
+        "value": 1
+      },
+      {
+        "name": "Fast Forward Mode",
+        "id": 20,
+        "type": "list",
+        "enabled": true,
+        "address": "0x80",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "Hold",
+            "value": 0
+          },
+          {
+            "name": "Toggle",
+            "value": 1
+          },
+          {
+            "name": "Disabled",
+            "value": 2
+          }
+        ]
+      },
+      {
+        "name": "Turbo",
+        "id": 25,
+        "type": "list",
+        "enabled": true,
+        "address": "0x88",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "Disabled",
+            "value": 0
+          },
+          {
+            "name": "Turbo A Button",
+            "value": 1
+          },
+          {
+            "name": "Turbo B Button",
+            "value": 2
+          }
+        ]
+      },
+      {
+        "name": "Force RTC (Dangerous)",
+        "id": 30,
+        "type": "list",
+        "enabled": true,
+        "address": "0x84",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "Off",
+            "value": 0
+          },
+          {
+            "name": "On",
+            "value": 1
+          }
+        ]
+      },
+      {
+        "name": "Analogizer Video Out",
+        "id": 40,
+        "type": "list",
+        "enabled": true,
+        "address": "0xF7000000",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "RGBS",
+            "value": 0
+          },
+          {
+            "name": "RGsB",
+            "value": 1
+          },
+          {
+            "name": "Y/C NTSC",
+            "value": 3
+          },
+          {
+            "name": "Y/C PAL",
+            "value": 4
+          },
+          {
+            "name": "RGBS, Pocket OFF",
+            "value": 8
+          },
+          {
+            "name": "RGsB, Pocket OFF",
+            "value": 9
+          },
+          {
+            "name": "Y/C NTSC, Pocket OFF",
+            "value": 11
+          },
+          {
+            "name": "Y/C PAL, Pocket OFF",
+            "value": 12
+          }
+        ]
+      }
+    ],
+    "messages": []
+  }
+}

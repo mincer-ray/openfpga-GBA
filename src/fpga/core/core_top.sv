@@ -230,6 +230,7 @@ assign port_ir_rx_disable = 1;
 // bridge endianness
 assign bridge_endian_little = 0;
 
+`ifndef ANALOGIZER_ENABLE
 // cart is unused, so set all level translators accordingly
 // directions are 0:IN, 1:OUT
 assign cart_tran_bank3 = 8'hzz;
@@ -245,6 +246,7 @@ assign cart_tran_pin30_dir = 1'bz;
 assign cart_pin30_pwroff_reset = 1'b0;
 assign cart_tran_pin31 = 1'bz;
 assign cart_tran_pin31_dir = 1'b0;
+`endif // !ANALOGIZER_ENABLE
 
 // link port is unused, set to input only to be safe
 assign port_tran_so = 1'bz;
@@ -1326,6 +1328,17 @@ reg [1:0] ff_mode = 0;    // 0 = Hold, 1 = Toggle, 2 = Disabled
 reg force_rtc = 0;        // 0 = Off, 1 = Force enable RTC/GPIO
 reg [1:0] turbo_mode = 0; // 0 = Disabled, 1 = Turbo A, 2 = Turbo B
 
+`ifdef ANALOGIZER_ENABLE
+// Analogizer settings — written by interact.json at 0xF7000000
+// [3:0]  analog_video_type: 0=RGBS,1=RGsB,2=YPbPr,3=Y/C NTSC,4=Y/C PAL,
+//                           5-7=Scandoubler, 8-15=same with Pocket OFF
+// [4]    conf_AB: 0=Conf.A (default), 1=Conf.B
+// [9:5]  game_cont_type: SNAC controller type (0=None)
+reg [3:0] analogizer_video_type = 4'h0;
+reg       analogizer_conf_ab    = 1'b0;
+reg [4:0] analogizer_snac_type  = 5'h0;
+`endif
+
 reg [13:0] reset_counter = 0;
 wire       core_reset = (reset_counter != 0);
 
@@ -1339,6 +1352,13 @@ always @(posedge clk_74a) begin
         32'h80: ff_mode    <= bridge_wr_data[1:0];
         32'h84: force_rtc  <= bridge_wr_data[0];
         32'h88: turbo_mode <= bridge_wr_data[1:0];
+`ifdef ANALOGIZER_ENABLE
+        32'hF7000000: begin
+            analogizer_video_type <= bridge_wr_data[3:0];
+            analogizer_conf_ab    <= bridge_wr_data[4];
+            analogizer_snac_type  <= bridge_wr_data[9:5];
+        end
+`endif
         endcase
     end
 end
@@ -1366,21 +1386,44 @@ wire [15:0] pixel_out_addr;
 wire [17:0] pixel_out_data;
 wire        pixel_out_we;
 
+// Internal video wires — routed to Pocket outputs below (and to Analogizer when enabled)
+wire [23:0] vid_rgb_int;
+wire        vid_de_int, vid_vs_int, vid_hs_int, vid_skip_int;
+wire        vid_hs_lvl, vid_vs_lvl, vid_ce_pix;
+
 video_adapter video_out (
-    .clk_sys    ( clk_sys ),
-    .clk_vid    ( clk_vid ),
-    .reset      ( ~pll_core_locked ),
+    .clk_sys       ( clk_sys ),
+    .clk_vid       ( clk_vid ),
+    .reset         ( ~pll_core_locked ),
 
-    .pixel_addr ( pixel_out_addr ),
-    .pixel_data ( pixel_out_data ),
-    .pixel_we   ( pixel_out_we ),
+    .pixel_addr    ( pixel_out_addr ),
+    .pixel_data    ( pixel_out_data ),
+    .pixel_we      ( pixel_out_we ),
 
-    .video_rgb  ( video_rgb ),
-    .video_de   ( video_de ),
-    .video_vs   ( video_vs ),
-    .video_hs   ( video_hs ),
-    .video_skip ( video_skip )
+    .video_rgb     ( vid_rgb_int ),
+    .video_de      ( vid_de_int ),
+    .video_vs      ( vid_vs_int ),
+    .video_hs      ( vid_hs_int ),
+    .video_skip    ( vid_skip_int ),
+    .video_hs_lvl  ( vid_hs_lvl ),
+    .video_vs_lvl  ( vid_vs_lvl ),
+    .video_ce_pix  ( vid_ce_pix )
 );
+
+`ifdef ANALOGIZER_ENABLE
+// Pocket OFF modes (analog_video_type[3] set) blank the Pocket screen.
+// analogizer_video_type is clk_74a domain; synchronise to clk_vid for gating.
+wire pocket_off_vid;
+synch_3 s_pocket_off (analogizer_video_type[3], pocket_off_vid, clk_vid);
+assign video_rgb  = pocket_off_vid ? 24'h0 : vid_rgb_int;
+assign video_de   = pocket_off_vid ? 1'b0  : vid_de_int;
+`else
+assign video_rgb  = vid_rgb_int;
+assign video_de   = vid_de_int;
+`endif
+assign video_vs   = vid_vs_int;
+assign video_hs   = vid_hs_int;
+assign video_skip = vid_skip_int;
 
 
 // ============================================================
@@ -1647,5 +1690,87 @@ gba_top #(
     .debug_mem           ()
 );
 
+
+
+`ifdef ANALOGIZER_ENABLE
+// ============================================================
+// Analogizer Video Output
+// Drives the cart_tran pins with RGB/sync for SCART/CRT output.
+// analog_video_type selects output format:
+//   0=RGBS  1=RGsB  2=YPbPr  3=Y/C NTSC  4=Y/C PAL
+//   5-7=Scandoubler  8-15=same modes with Pocket display off
+// ============================================================
+
+// CSync derived from level H/V sync signals (active-high)
+wire vid_csync;
+csync csync_gen (
+    .clk   (clk_vid),
+    .hsync (vid_hs_lvl),
+    .vsync (vid_vs_lvl),
+    .csync (vid_csync)
+);
+
+openFPGA_Pocket_Analogizer #(
+    .MASTER_CLK_FREQ (100_663_296),
+    .LINE_LENGTH     (308)
+) analogizer (
+    .i_clk              (clk_sys),
+    .i_rst              (~pll_core_locked),
+    .i_ena              (1'b1),
+    // Video
+    .video_clk          (clk_vid),
+    .analog_video_type  (analogizer_video_type),
+    .R                  (vid_rgb_int[23:16]),
+    .G                  (vid_rgb_int[15:8]),
+    .B                  (vid_rgb_int[7:0]),
+    .Hblank             (~vid_de_int),
+    .Vblank             (~vid_de_int),
+    .BLANKn             (vid_de_int),
+    .Hsync              (vid_hs_lvl),
+    .Vsync              (vid_vs_lvl),
+    .Csync              (vid_csync),
+    // Y/C chroma — PAL when bits[2:0]==4 (covers types 4 and 12)
+    .CHROMA_PHASE_INC   (analogizer_video_type[2:0] == 3'd4 ?
+                             40'd24351512 :   // PAL:  ~4.43361875 MHz @ 100.663 MHz master
+                             40'd21021786),   // NTSC: ~3.57954545 MHz @ 100.663 MHz master
+    .PALFLAG            (analogizer_video_type[2:0] == 3'd4),
+    // Scandoubler ports — unused in GBA stripped module, tied to safe values
+    .ce_pix             (vid_ce_pix),
+    .scandoubler        (1'b0),
+    .fx                 (3'd0),
+    // SNAC — Phase 1: disabled (game_cont_type=0 → None)
+    .conf_AB            (analogizer_conf_ab),
+    .game_cont_type     (analogizer_snac_type),
+    .p1_btn_state       (),
+    .p1_joy_state       (),
+    .p2_btn_state       (),
+    .p2_joy_state       (),
+    .p3_btn_state       (),
+    .p4_btn_state       (),
+    // PSX rumble — unused
+    .i_VIB_SW1          (2'b0),
+    .i_VIB_DAT1         (8'b0),
+    .i_VIB_SW2          (2'b0),
+    .i_VIB_DAT2         (8'b0),
+    .busy               (),
+    // Cartridge port — Analogizer controls all cart_tran pins
+    .cart_tran_bank2        (cart_tran_bank2),
+    .cart_tran_bank2_dir    (cart_tran_bank2_dir),
+    .cart_tran_bank3        (cart_tran_bank3),
+    .cart_tran_bank3_dir    (cart_tran_bank3_dir),
+    .cart_tran_bank1        (cart_tran_bank1),
+    .cart_tran_bank1_dir    (cart_tran_bank1_dir),
+    .cart_tran_bank0        (cart_tran_bank0),
+    .cart_tran_bank0_dir    (cart_tran_bank0_dir),
+    .cart_tran_pin30        (cart_tran_pin30),
+    .cart_tran_pin30_dir    (cart_tran_pin30_dir),
+    .cart_pin30_pwroff_reset(cart_pin30_pwroff_reset),
+    .cart_tran_pin31        (cart_tran_pin31),
+    .cart_tran_pin31_dir    (cart_tran_pin31_dir),
+    // Debug — unused
+    .DBG_TX             (),
+    .o_stb              ()
+);
+`endif // ANALOGIZER_ENABLE
 
 endmodule

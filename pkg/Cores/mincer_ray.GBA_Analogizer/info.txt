@@ -1,0 +1,5 @@
+Port by mincer_ray. Original core GBA_MiSTer by various contributers.
+
+Any bugs are likely related to the Pocket port, do not report them to the MiSTer repo.
+
+Licensed under GPL-2.0

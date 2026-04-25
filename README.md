@@ -67,6 +67,24 @@ Should be very easy
 ./scripts/build.sh
 ```
 
+### Background Build
+
+To run Quartus without blocking an OpenCode session:
+
+```bash
+./scripts/quartus-build-bg.sh start
+./scripts/quartus-build-bg.sh status
+./scripts/quartus-build-bg.sh wait
+```
+
+The OpenCode command `/quartus-build-bg` wraps the same tool. Use `/quartus-build-bg wait` to rejoin the result after the background compile finishes.
+
+## Documentation
+
+- Maintainer architecture guide: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- Spec-kit project governance: [`.specify/memory/constitution.md`](.specify/memory/constitution.md)
+- Documentation spec: [`specs/001-project-architecture-documentation/`](specs/001-project-architecture-documentation/)
+
 ## Credits
 
 - **[MiSTer GBA core](https://github.com/MiSTer-devel/GBA_MiSTer)** — original FPGA GBA implementation
