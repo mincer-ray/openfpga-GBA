@@ -86,10 +86,10 @@
         "address": "0x8C",
         "persist": true,
         "writeonly": true,
-        "defaultval": 4,
+        "defaultval": 0,
         "options": [
           {
-            "name": "Aspect / Blend +15%",
+            "name": "Aspect / Blend +12.5%",
             "value": 4
           },
           {

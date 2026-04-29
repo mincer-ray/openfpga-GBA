@@ -17,7 +17,7 @@
 //   1 = Aspect/Normal  320 output clocks, nearest-neighbor GBA columns 0..239.
 //   2 = Wide/Overscan  448 output clocks, full GBA columns 0..239.
 //   3 = Aspect/Blend   320 output clocks, horizontally interpolated.
-//   4 = Blend +15%     368x184 output clocks, horizontally interpolated.
+//   4 = Blend +12.5%   360x180 output clocks, horizontally interpolated.
 
 `default_nettype none
 
@@ -69,9 +69,9 @@ module gba_analogizer_video #(
     localparam [9:0] IMG_W_DEBUG  = 10'd240;
     localparam [9:0] IMG_W_NORMAL = 10'd320;
     localparam [9:0] IMG_W_WIDE   = 10'd448;
-    localparam [9:0] IMG_W_LARGE  = 10'd368;
+    localparam [9:0] IMG_W_LARGE  = 10'd360;
     localparam [8:0] IMG_H_NORMAL = 9'd160;
-    localparam [8:0] IMG_H_LARGE  = 9'd184;
+    localparam [8:0] IMG_H_LARGE  = 9'd180;
     localparam [9:0] LP_H_ACTIVE  = H_ACTIVE;
     localparam [10:0] LP_SRC_W    = SRC_W;
 
@@ -96,31 +96,27 @@ module gba_analogizer_video #(
             if (!large_mode) begin
                 scale_y_to_src = out_y;
             end else begin
-                if      (out_y == 9'd0)   repeats = 5'd0;
-                else if (out_y <= 9'd7)   repeats = 5'd1;
-                else if (out_y <= 9'd15)  repeats = 5'd2;
-                else if (out_y <= 9'd23)  repeats = 5'd3;
-                else if (out_y <= 9'd30)  repeats = 5'd4;
-                else if (out_y <= 9'd38)  repeats = 5'd5;
-                else if (out_y <= 9'd46)  repeats = 5'd6;
-                else if (out_y <= 9'd53)  repeats = 5'd7;
-                else if (out_y <= 9'd61)  repeats = 5'd8;
-                else if (out_y <= 9'd69)  repeats = 5'd9;
-                else if (out_y <= 9'd76)  repeats = 5'd10;
-                else if (out_y <= 9'd84)  repeats = 5'd11;
-                else if (out_y <= 9'd92)  repeats = 5'd12;
-                else if (out_y <= 9'd99)  repeats = 5'd13;
-                else if (out_y <= 9'd107) repeats = 5'd14;
-                else if (out_y <= 9'd115) repeats = 5'd15;
-                else if (out_y <= 9'd122) repeats = 5'd16;
-                else if (out_y <= 9'd130) repeats = 5'd17;
-                else if (out_y <= 9'd138) repeats = 5'd18;
-                else if (out_y <= 9'd145) repeats = 5'd19;
-                else if (out_y <= 9'd153) repeats = 5'd20;
-                else if (out_y <= 9'd161) repeats = 5'd21;
-                else if (out_y <= 9'd168) repeats = 5'd22;
-                else if (out_y <= 9'd176) repeats = 5'd23;
-                else                       repeats = 5'd24;
+                if      (out_y <= 9'd7)   repeats = 5'd0;
+                else if (out_y <= 9'd16)  repeats = 5'd1;
+                else if (out_y <= 9'd25)  repeats = 5'd2;
+                else if (out_y <= 9'd34)  repeats = 5'd3;
+                else if (out_y <= 9'd43)  repeats = 5'd4;
+                else if (out_y <= 9'd52)  repeats = 5'd5;
+                else if (out_y <= 9'd61)  repeats = 5'd6;
+                else if (out_y <= 9'd70)  repeats = 5'd7;
+                else if (out_y <= 9'd79)  repeats = 5'd8;
+                else if (out_y <= 9'd88)  repeats = 5'd9;
+                else if (out_y <= 9'd97)  repeats = 5'd10;
+                else if (out_y <= 9'd106) repeats = 5'd11;
+                else if (out_y <= 9'd115) repeats = 5'd12;
+                else if (out_y <= 9'd124) repeats = 5'd13;
+                else if (out_y <= 9'd133) repeats = 5'd14;
+                else if (out_y <= 9'd142) repeats = 5'd15;
+                else if (out_y <= 9'd151) repeats = 5'd16;
+                else if (out_y <= 9'd160) repeats = 5'd17;
+                else if (out_y <= 9'd169) repeats = 5'd18;
+                else if (out_y <= 9'd178) repeats = 5'd19;
+                else                       repeats = 5'd20;
                 scale_y_to_src = out_y - repeats;
             end
         end
