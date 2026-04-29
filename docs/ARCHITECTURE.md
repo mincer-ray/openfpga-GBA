@@ -24,9 +24,6 @@ The shipped package is an OpenFPGA core named `mincer_ray.GBA`. The generated ru
 ├── src/fpga/gba/                     # MiSTer-derived GBA implementation in VHDL
 ├── src/fpga/build/                   # Active Quartus project/revision and pin/source assignments
 ├── .github/workflows/                # Branch build and release workflows
-├── .specify/                         # Spec-kit project memory, scripts, templates, integration data
-├── .opencode/command/                # Spec-kit slash-command prompts for OpenCode
-├── specs/                            # Spec-kit feature/documentation specifications
 └── docs/                             # Maintainer documentation
 ```
 
@@ -487,4 +484,3 @@ These are either ignored or produced by local/CI/release flows.
 - Update save-size documentation if `FLASH1M_V`, RTC append, or datatable behavior changes.
 - Update omitted-feature documentation before advertising link, gyro, solar, rumble, cheats, rewind, or color-correction support.
 - For RTL changes, prefer validating with `./scripts/build.sh` and reviewing Quartus timing/custom reports.
-- Use spec-kit artifacts under `.specify/` and `specs/` to keep future documentation changes traceable.

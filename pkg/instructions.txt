@@ -3,3 +3,6 @@ Copy the 3 folders (Cores/, Platforms/, Assets/) to the root of your Analogue Po
 Note: macOS Finder replaces folders instead of merging them so do it all manually and be careful.
 
 Place your ROMs and gba_bios.bin in /Assets/gba/common/
+
+Analogizer builds are provided as a separate core under Cores/mincer_ray.GBA_Analogizer/.
+Use that core when connecting the Analogizer-FPGA adapter.

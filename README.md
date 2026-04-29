@@ -11,6 +11,7 @@ LLM assisted port of [MiSTer GBA core](https://github.com/MiSTer-devel/GBA_MiSTe
 - **Save States**
 - **Fast Forward (Bound to Y button)**
 - **RTC**
+- **Analogizer Build** — Separate `GBA_Analogizer` core package with cartridge adapter support for Analogizer-FPGA analog video output.
 - **FORCE RTC** — Manually enables RTC for ROMs that aren't in the database. This is useful for ROM hacks that add RTC support to games that don't normally use it (like a certain "unbound" hack). Make sure to enable this on first load of the hack, ideally as soon as possible during the bios display to avoid any issues with initializing the save. **USE WITH CAUTION:** enabling this on a game that doesn't actually use RTC can cause crashes or glitches.
 ### **⚠️WARNING: Forced RTC setting persists across games! Remember to turn it off before loading a game that doesn't need it⚠️**
 
@@ -48,9 +49,33 @@ The core should be available on pocket manager apps, or you can install manually
    - **macOS users:** Note: macOS Finder replaces folders instead of merging them so do it all manually and be careful.
 3. Place your ROMs and `gba_bios.bin` in `/Assets/gba/common/`
 
+## Analogizer Support
+
+This branch also builds a separate core named `GBA_Analogizer` in `Cores/mincer_ray.GBA_Analogizer/`. It enables the Pocket cartridge adapter pins for Analogizer-FPGA and uses a dedicated CRT raster path instead of sending the Pocket scaler output to the adapter.
+
+The Analogizer build currently supports:
+
+- **RGBS**
+- **RGsB**
+- **Y/C NTSC**
+- **Y/C PAL**
+- **Pocket OFF** variants for the same video outputs
+
+The `CRT Scale` core setting controls how the 240x160 GBA framebuffer is mapped to the 15 kHz Analogizer output:
+
+- **Aspect / Blend +12.5%** — Default larger blended mode, 360x180 output clocks.
+- **Aspect / Blend** — 320-wide output with horizontal interpolation.
+- **No Scale / Square** — 240-wide output with square source pixels.
+- **Small / Stretch** — 320-wide nearest-neighbor output.
+- **Wide / Overscan** — 448-wide output for wider CRT fill.
+
+The Analogizer video path uses `clk_vid` timing at about 15.65 kHz / 59.7 Hz, prefetches each GBA line through a small line buffer, and shares the existing framebuffer read port with the Pocket video adapter. Pocket screen output remains available unless a `Pocket OFF` Analogizer mode is selected.
+
 ## Known Issues
 
 - **Fast forward speed varies by game** — Games that make heavy use of the GBA's slower external RAM will not fast-forward as quickly as games that primarily use internal RAM. This is most noticeable with the Classic NES Series titles.
+- **Analogizer support is a separate core** — Use `GBA_Analogizer`, not the normal `GBA` core, when using the Analogizer adapter.
+- **Analogizer output depends on CRT/display tolerance** — The CRT path targets about 15.65 kHz / 59.7 Hz. Some displays or scalers may need a different scale mode or video output type.
 
 ## Building from Source
 
@@ -67,9 +92,15 @@ Should be very easy
 ./scripts/build.sh
 ```
 
+### Analogizer Build
+
+```bash
+./scripts/build_analogizer.sh
+```
+
 ### Background Build
 
-To run Quartus without blocking an OpenCode session:
+To run Quartus in the background:
 
 ```bash
 ./scripts/quartus-build-bg.sh start
@@ -77,13 +108,14 @@ To run Quartus without blocking an OpenCode session:
 ./scripts/quartus-build-bg.sh wait
 ```
 
-The OpenCode command `/quartus-build-bg` wraps the same tool. Use `/quartus-build-bg wait` to rejoin the result after the background compile finishes.
+For the Analogizer build:
 
-## Documentation
+```bash
+./scripts/quartus-build-bg.sh --analogizer start
+./scripts/quartus-build-bg.sh --analogizer status
+./scripts/quartus-build-bg.sh --analogizer wait
+```
 
-- Maintainer architecture guide: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-- Spec-kit project governance: [`.specify/memory/constitution.md`](.specify/memory/constitution.md)
-- Documentation spec: [`specs/001-project-architecture-documentation/`](specs/001-project-architecture-documentation/)
 
 ## Credits
 
@@ -91,6 +123,7 @@ The OpenCode command `/quartus-build-bg` wraps the same tool. Use `/quartus-buil
 - **[Analogue openFPGA](https://www.analogue.co/developer)** — platform framework and core template
 - **[budude2/openfpga-GBC](https://github.com/budude2/openfpga-GBC)** — reference for MiSTer-to-Pocket porting patterns
 - **[agg23](https://github.com/agg23)** — analogue-pocket-utils and reference SNES/NES Pocket cores
+- **[RndMnkIII Analogizer](https://github.com/RndMnkIII/Analogizer)** — Analogizer-FPGA adapter and openFPGA interface modules
 
 ## License
 

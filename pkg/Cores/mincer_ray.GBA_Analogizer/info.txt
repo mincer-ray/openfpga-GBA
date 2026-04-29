@@ -1,5 +1,8 @@
 Port by mincer_ray. Original core GBA_MiSTer by various contributers.
 
+Analogizer-FPGA adapter support based on RndMnkIII's Analogizer interface modules.
+Use this separate GBA_Analogizer core for analog video output through the cartridge adapter.
+
 Any bugs are likely related to the Pocket port, do not report them to the MiSTer repo.
 
 Licensed under GPL-2.0
