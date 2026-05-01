@@ -30,8 +30,8 @@ entity gba_gpioRTCSolarGyro is
       RTC_timestampOut     : out    std_logic_vector(31 downto 0); -- timestamp to be saved
       RTC_savedtimeOut     : out    std_logic_vector(41 downto 0); -- time structure to be saved
       RTC_inuse            : out    std_logic := '0';              -- will indicate that RTC is in use and should be saved on next saving
-   
-      dummy                : in     std_logic := '0'
+
+      rumble               : out    std_logic := '0'
    );
 end entity;
 
@@ -146,6 +146,8 @@ begin
             
             bits      <= unsigned(SAVESTATE_GPIOBITS(21 downto 16));
 
+            rumble    <= '0';
+
             saveRTC   <= '0';
             
             RTC_inuse <= RTC_saveLoaded;
@@ -191,9 +193,17 @@ begin
                      
                   when "01" => -- 0x80000c6
                      selected <= GPIO_Dout;
-               
+                     if (GPIO_Dout(3) = '0') then
+                        rumble <= '0';
+                     end if;
+
                   when "00" => -- 0x80000c4
-               
+
+                     -- rumble
+                     if (selected(3) = '1') then
+                        rumble <= GPIO_Dout(3);
+                     end if;
+
                      -- RTC
                      --if (selected(2) = '1') then -- don't check for clock as Sennen Kazoku doesn't handle it "correct"
                      

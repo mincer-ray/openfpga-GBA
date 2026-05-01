@@ -38,7 +38,8 @@ entity gba_top is
       load_state            : in     std_logic;
       maxpixels             : in     std_logic;                    -- limit pixels per line
       specialmodule         : in     std_logic;                    -- 0 = off, 1 = use gamepak GPIO Port at address 0x080000C4..0x080000C8
-      -- solar/tilt/rumble removed to save ALMs (only affects <2% of games)
+      Rumble                : out    std_logic := '0';              -- GPIO bit 3 at 0x80000C4 (Drill Dozer / WarioWare Twisted)
+      -- solar/tilt/gyro removed to save ALMs (only affects <2% of games)
       savestate_number      : in     integer;
       -- RTC
       RTC_timestampNew      : in     std_logic;                     -- new current timestamp from system
@@ -481,9 +482,9 @@ begin
       RTC_saveLoaded       => RTC_saveLoaded,    
       RTC_timestampOut     => RTC_timestampOut,  
       RTC_savedtimeOut     => RTC_savedtimeOut,  
-      RTC_inuse            => RTC_inuse,         
+      RTC_inuse            => RTC_inuse,
 
-      dummy                => '0'
+      rumble               => Rumble
    );
    
    process (clk100)

@@ -230,15 +230,49 @@ assign port_ir_rx_disable = 1;
 // bridge endianness
 assign bridge_endian_little = 0;
 
-// cart is unused, so set all level translators accordingly
-// directions are 0:IN, 1:OUT
-assign cart_tran_bank3 = 8'hzz;
-assign cart_tran_bank3_dir = 1'b0;
-assign cart_tran_bank2 = 8'hzz;
-assign cart_tran_bank2_dir = 1'b0;
-assign cart_tran_bank1 = 8'hzz;
-assign cart_tran_bank1_dir = 1'b0;
-assign cart_tran_bank0 = 4'hf;
+// ---- DS Rumble Pak driver (cart slot, AD1 tick-mode protocol) ----
+// Pin map (per Analogizer spec, verified):
+//   bank3[7:0] = AD[7:0]   ← bank3[1] = AD1 (tick)
+//   bank2[7:0] = AD[15:8]
+//   bank1[7:0] = A[23:16]
+//   bank0[4]   = /CS
+//   bank0[5]   = /RD
+//   bank0[6]   = /WR
+//   bank0[7]   = PHI
+// Tick mode: each AD1 toggle latched on /WR rising edge produces a brief
+// motor impulse. Stacking impulses at ~141 Hz (ERM-friendly) gives a
+// continuous tactile rumble while cart_rumble is held high.
+
+wire cart_rumble;                    // from gba_top, clk_sys domain
+wire cart_rumble_74;                 // synced to clk_74a
+synch_3 cart_rumble_sync(cart_rumble, cart_rumble_74, clk_74a);
+
+// 74.25 MHz / 2^19 ≈ 141 Hz square wave on AD1 when rumble enabled.
+// AD1 gated by cart_rumble so motor stops cleanly during game-PWM "off"
+// phases (Drill Dozer varies intensity by software-PWMing GPIO bit 3).
+// Bus is always driven so /WR pulses always latch a definite AD1 value —
+// no risk of motor getting stuck ON when cart_rumble drops mid-toggle.
+reg [18:0] rumble_cnt = 19'd0;
+reg        rumble_ad1 = 1'b0;
+reg        rumble_wr_n = 1'b1;
+
+always @(posedge clk_74a) begin
+    rumble_cnt <= rumble_cnt + 19'd1;
+    rumble_ad1 <= cart_rumble_74 & rumble_cnt[18];
+    rumble_wr_n <= ~(rumble_cnt[17:4] == 14'd0);
+end
+
+// AD1 = rumble_ad1 (tick), AD0 = 0, AD7..2 = 0
+// Always drive the cart bus so motor state always tracks cart_rumble.
+// AD1 = rumble_ad1 (tick toggle gated by cart_rumble), AD0 = 0, others = 0.
+assign cart_tran_bank3     = {6'b0, rumble_ad1, 1'b0};
+assign cart_tran_bank3_dir = 1'b1;
+assign cart_tran_bank2     = 8'h00;
+assign cart_tran_bank2_dir = 1'b1;
+assign cart_tran_bank1     = 8'h00;
+assign cart_tran_bank1_dir = 1'b1;
+// bank0[7]=PHI=0, [6]=/WR (pulsed), [5]=/RD=1, [4]=/CS=0 active
+assign cart_tran_bank0     = {1'b0, rumble_wr_n, 1'b1, 1'b0};
 assign cart_tran_bank0_dir = 1'b1;
 assign cart_tran_pin30 = 1'b0;
 assign cart_tran_pin30_dir = 1'bz;
@@ -1567,7 +1601,7 @@ gba_top #(
     .load_state          ( ss_load ),
     .maxpixels           ( quirk_sprite ),
     .specialmodule       ( quirk_gpio | force_rtc_s ),
-    // solar/tilt/rumble removed to save ALMs
+    .Rumble              ( cart_rumble ),
     .savestate_number    ( 0 ),
     // RTC
     .RTC_timestampNew    ( rtc_new_s ),
