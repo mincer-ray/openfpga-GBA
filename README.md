@@ -77,3 +77,5 @@ Should be very easy
 ## License
 
 GPL-2.0 — see [GBA_MiSTer LICENSE](https://github.com/MiSTer-devel/GBA_MiSTer/blob/master/LICENSE) for details.
+
+2c5aef5574b6a47c95bb8154197059d99acbd555a7b5b25365112b56b7a79a17
