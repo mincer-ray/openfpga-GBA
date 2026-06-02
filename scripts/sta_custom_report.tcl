@@ -24,11 +24,17 @@ update_timing_netlist
 
 # Generate detailed reports
 set out_setup "$report_dir/ap_core.sta.paths_setup.rpt"
+set out_setup_0c "$report_dir/ap_core.sta.paths_setup_current_0c.rpt"
 set out_hold  "$report_dir/ap_core.sta.paths_hold.rpt"
 set out_sum   "$report_dir/ap_core.sta.clock_summary.rpt"
 
 post_message "Generating setup timing paths report..."
 report_timing -setup -npaths 80 -detail full_path -file $out_setup
+
+post_message "Generating 0C setup timing paths report..."
+set_operating_conditions 8_slow_1100mv_0c
+report_timing -setup -npaths 120 -detail full_path -file $out_setup_0c
+set_operating_conditions 8_slow_1100mv_85c
 
 post_message "Generating hold timing paths report..."
 report_timing -hold  -npaths 40 -detail full_path -file $out_hold
@@ -49,7 +55,7 @@ post_message "Generating clock Fmax summary..."
 report_clock_fmax_summary -file $out_sum
 
 # Verify outputs
-foreach f [list $out_setup $out_hold $out_sum $out_sdram_wr $out_sdram_rd] {
+foreach f [list $out_setup $out_setup_0c $out_hold $out_sum $out_sdram_wr $out_sdram_rd] {
     if {[file exists $f]} {
         post_message "  OK: $f ([file size $f] bytes)"
     } else {

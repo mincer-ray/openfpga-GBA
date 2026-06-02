@@ -177,6 +177,7 @@ architecture arch of gba_top is
    signal mem_bus_dout         : std_logic_vector(31 downto 0);
    signal mem_bus_din          : std_logic_vector(31 downto 0);
    signal mem_bus_done         : std_logic;
+   signal mem_bus_done_cpu     : std_logic;
    signal mem_bus_unread       : std_logic;
    
    signal bus_lowbits          : std_logic_vector(1 downto 0); -- only required for sram access
@@ -306,8 +307,7 @@ architecture arch of gba_top is
    signal new_exact_cycle : std_logic := '0';
    signal CyclesVsync     : unsigned(31 downto 0) := (others => '0');
    signal bench_slow      : integer range 0 to 1685375 := 0;
-   
-   
+
 begin 
 
    -- dummy modules
@@ -399,7 +399,7 @@ begin
    dma_bus_unread <= mem_bus_unread;
    
    cpu_bus_din  <= mem_bus_din;
-   cpu_bus_done <= mem_bus_done;
+   cpu_bus_done <= mem_bus_done_cpu;
    
    igba_savestates : entity work.gba_savestates
    generic map
@@ -542,6 +542,7 @@ begin
       mem_bus_dout         => mem_bus_dout,
       mem_bus_din          => mem_bus_din, 
       mem_bus_done         => mem_bus_done,
+      mem_bus_done_cpu     => mem_bus_done_cpu,
       mem_bus_unread       => mem_bus_unread,
       
       bus_lowbits          => bus_lowbits,
@@ -976,8 +977,4 @@ begin
    
 
 end architecture;
-
-
-
-
 
