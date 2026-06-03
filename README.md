@@ -37,7 +37,7 @@ At the moment there only seems to be 1 romhack that needs this feature. If you a
 
 This core more or less replicates the current accuracy of the MiSTer GBA core master branch. The features that were cut to fit the smaller FPGA were convenience features, not accuracy-related logic. It scores similarly to the MiSTer core in the mGBA test suite. If you encounter a game that works on MiSTer but not here, please open an issue.
 
-note: MiSTer core has an accuracy branch. A few of those changes have made it into this core but due to it not supporting fast forward or save states I will probably not pursue a robust port of the accuracy branch.
+Note: MiSTer core has an accuracy branch! A few of those changes have made it into this port but due to it not supporting fast forward (never coming due to technical limitations) or link port (probably coming) I've kinda stalled on that branch for the time being. I'm considering maybe splitting into 2 cores, but probably we just need to wait for the MiSTer devs to finish before really committing to that plan. The regular MiSTer core works well enough for now.
 
 ## Installation
 
