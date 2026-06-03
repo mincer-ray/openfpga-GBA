@@ -116,7 +116,7 @@ entity gba_memorymux is
       AnalogTiltX          : in     signed(7 downto 0);
       AnalogTiltY          : in     signed(7 downto 0);
       
-      debug_mem            : out    std_logic_vector(31 downto 0)  
+      debug_mem            : out    std_logic_vector(31 downto 0)
    );
 end entity;
 
@@ -889,13 +889,13 @@ begin
                      when others => null;
                   end case;
                end if;
-               mem_bus_done <= '1'; 
+               mem_bus_done <= '1';
                mem_bus_unread <= unread_next;
                state <= IDLE;
                
             when READ_GPIO =>
                if (GPIO_done = '1') then
-                  mem_bus_done <= '1'; 
+                  mem_bus_done <= '1';
                   mem_bus_din    <= x"0000000" & GPIO_Din;
                   state <= IDLE;
                end if;
