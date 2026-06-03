@@ -290,7 +290,9 @@ architecture arch of gba_cpu is
    
    signal calc_result               : unsigned(31 downto 0);
    signal writeback_reg             : std_logic_vector(3 downto 0) := (others => '0');
+   signal load_writeback_reg        : std_logic_vector(3 downto 0) := (others => '0');
    signal execute_writeback_calc    : std_logic := '0';
+   signal execute_writeback_load    : std_logic := '0';
    signal execute_writeback_r17     : std_logic := '0';
    signal execute_writeback_userreg : std_logic := '0';
    signal execute_switchregs        : std_logic := '0';
@@ -959,6 +961,11 @@ begin
                   regs(to_integer(unsigned(writeback_reg))) <= calc_result;
                end if;   
             end if;
+            if (execute_writeback_load = '1') then
+               if (load_writeback_reg /= x"F") then
+                  regs(to_integer(unsigned(load_writeback_reg))) <= calc_result;
+               end if;
+            end if;
             if (execute_writeback_r17 = '1') then
                regs(17) <= msr_writebackvalue;
             end if;
@@ -1229,7 +1236,7 @@ begin
                
                when CALC =>
                
-                  if ((execute_writeback_calc = '0' or writeback_reg /= x"F") and calc_done = '1' and branchnext = '0') then
+                  if ((execute_writeback_calc = '0' or writeback_reg /= x"F") and (execute_writeback_load = '0' or load_writeback_reg /= x"F") and calc_done = '1' and branchnext = '0') then
                      state_execute <= FETCH_OP;
                      done             <= '1';
                      new_cycles_out   <= to_unsigned(execute_cycles + execute_addcycles + to_integer(unsigned(Underclock)), new_cycles_out'length);
@@ -2173,6 +2180,7 @@ begin
             bus_lowbits     <= "00";
             
             execute_writeback_calc     <= '0';
+            execute_writeback_load     <= '0';
             execute_writeback_r17      <= '0';
             execute_writeback_userreg  <= '0';
             execute_switchregs         <= '0';
@@ -2182,7 +2190,7 @@ begin
             
             shifter_start              <= '0';
             
-            if ((execute_writeback_calc = '1' and writeback_reg = x"F" and blockr15jump = '0')) then
+            if ((((execute_writeback_calc = '1' and writeback_reg = x"F") or (execute_writeback_load = '1' and load_writeback_reg = x"F")) and blockr15jump = '0')) then
                branchnext       <= '1';
                if (thumbmode = '1') then
                   new_pc     <= calc_result(new_pc'left downto 1) & '0';
@@ -2792,6 +2800,7 @@ begin
                            end if;
                            if (execute_functions_detail = data_read and swap_write = '0') then
                               bus_execute_rnw <= '1';
+                              load_writeback_reg <= execute_rdest;
                            else
                               bus_execute_rnw <= '0';
                            end if;
@@ -2849,8 +2858,7 @@ begin
                                     end if;                                    
                                       
                               end case;
-                              execute_writeback_calc <= '1';
-                              writeback_reg          <= execute_rdest;
+                              execute_writeback_load <= '1';
                            end if;
                            
                            if (execute_datatransfer_preadd = '0') then
