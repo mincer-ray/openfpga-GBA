@@ -22,12 +22,23 @@ jobs:
       - name: Reverse bitstream
         run: python3 scripts/reverse_bitstream.py src/fpga/build/output_files/ap_core.rbf pkg/Cores/mincer_ray.GBA/bitstream.rbf_r
 
-      - name: Upload bitstream
+      - name: Package build zip
+        run: |
+          VERSION=$(jq -r '.core.metadata.version' pkg/Cores/mincer_ray.GBA/core.json)
+          BRANCH_NAME="${GITHUB_REF_NAME:-${GITHUB_REF#refs/heads/}}"
+          SAFE_BRANCH=$(printf '%s' "$BRANCH_NAME" | sed 's#[^A-Za-z0-9._-]#-#g')
+          PACKAGE_ZIP="mincer_ray.GBA_${SAFE_BRANCH}_${VERSION}.zip"
+          cd pkg
+          zip -r "../${PACKAGE_ZIP}" .
+          echo "PACKAGE_BRANCH=${SAFE_BRANCH}" >> "$GITHUB_ENV"
+          echo "PACKAGE_ZIP=${PACKAGE_ZIP}" >> "$GITHUB_ENV"
+
+      - name: Upload package zip
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: bitstream
-          path: pkg/Cores/mincer_ray.GBA/bitstream.rbf_r
+          name: package-${{ env.PACKAGE_BRANCH }}
+          path: ${{ env.PACKAGE_ZIP }}
 
       - name: Extract timing closure failures
         if: always()
