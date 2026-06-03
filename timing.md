@@ -6,7 +6,7 @@ Date: 2026-06-02
 
 The timing issue on `master` was initially concentrated in the GPU drawer/video path. A diagnostic timing exception probe showed that if internal `gba_gpu_drawer` paths were removed from the 6x single-cycle budget, the design essentially closed at slow 0C. That did not justify a timing exception by itself, because it did not prove the real sampling latency of those paths, but it did prove where the pressure was.
 
-The final solution did not use a false-path or multicycle exception. It closed timing with real HDL cleanup in the GPU drawer, a same-cycle duplicate CPU memory-response path, and a fitter seed change from `6` to `8`.
+The final solution did not use a false-path or multicycle exception. It closed timing with real HDL cleanup in the GPU drawer, a ROM/PAK cache-response split in `gba_memorymux`, several targeted CPU critical-path cleanups, and the final fitter settings `PLACEMENT_EFFORT_MULTIPLIER 4.0` plus seed `8`.
 
 Final verified build result from `./scripts/build.sh`:
 
@@ -202,7 +202,7 @@ Conclusion:
 
 This was a bad direction. It also risked changing bus latency, so it was reverted.
 
-### 6. Added same-cycle CPU-specific `mem_bus_done_cpu`
+### 6. Tried and removed a CPU-specific `mem_bus_done_cpu`
 
 Files:
 
@@ -213,52 +213,114 @@ src/fpga/gba/gba_top.vhd
 
 Problem:
 
-After the GPU cleanup, a major remaining failing path was the memorymux `mem_bus_done` response feeding CPU-side logic. The goal was to reduce routing/fanout pressure without changing bus latency.
+After the GPU cleanup, a major remaining failing path was the memorymux `mem_bus_done` response feeding CPU-side logic.
 
-Change:
+Experiment:
 
-`gba_memorymux` now has a second output:
+One attempt added a duplicate same-cycle memory-response output for the CPU:
 
 ```text
 mem_bus_done_cpu : out std_logic
+cpu_bus_done <= mem_bus_done_cpu
 ```
 
-Both `mem_bus_done` and `mem_bus_done_cpu` are driven in the same clocked process, in the same cycle, through a local helper procedure:
+That experiment was useful because it confirmed the response path was timing-sensitive, and one intermediate commit reached timing pass. It did not survive in the final branch tip. The branch-tip RTL has no `mem_bus_done_cpu` port or top-level CPU-done duplicate.
+
+Conclusion:
+
+The duplicate-done approach was not the final solution. The final solution keeps a single `mem_bus_done` contract and instead reduces the path shape in `gba_memorymux` and `gba_cpu`.
+
+### 7. Split ROM/PAK cache response out of `ADDR_DECODE`
+
+File:
 
 ```text
-procedure set_mem_bus_done(value : std_logic) is
-begin
-   mem_bus_done     <= value;
-   mem_bus_done_cpu <= value;
-end procedure;
+src/fpga/gba/gba_memorymux.vhd
 ```
 
-Both outputs are preserved:
+Problem:
+
+The ROM/PAK read path handled address decode, SDRAM buffer-hit checks, special GPIO override, response-data selection, `mem_bus_done`, and cache-read launch in a tight part of `ADDR_DECODE`. After the GPU cleanup, this was part of the remaining memorymux/CPU pressure.
+
+Change:
+
+The branch-tip memorymux adds a new state:
 
 ```text
-attribute preserve of mem_bus_done     : signal is true;
-attribute preserve of mem_bus_done_cpu : signal is true;
+READPAK_CACHE
 ```
 
-At top level, only the CPU consumes the duplicate:
+`IDLE` now just latches the request and clears the cached hit flags. `ADDR_DECODE` checks MaxPak/GPIO, computes `sdram_buf_hit_16` and `sdram_buf_hit_32`, then moves to `READPAK_CACHE`. `READPAK_CACHE` emits the cached response or starts the cache read:
 
 ```text
-cpu_bus_done <= mem_bus_done_cpu;
+if (sdram_buf_hit_16 = '1') then
+   mem_bus_done <= '1';
+   mem_bus_din  <= ...
+elsif (sdram_buf_hit_32 = '1') then
+   mem_bus_done <= '1';
+   mem_bus_din  <= ...
+else
+   cache_read_enable <= '1';
+   cache_read_addr   <= ...
+   state             <= WAIT_SDRAM;
+end if;
 ```
 
-DMA, savestates, debug, and the other memory clients continue using the original `mem_bus_done`.
+Conclusion:
 
-Result:
+This replaced the removed `mem_bus_done_cpu` experiment with a real state-machine split. It reduces the packed decode/response path instead of duplicating the done signal.
+
+### 8. Cleaned up CPU local critical paths
+
+File:
 
 ```text
-Slow 85C setup WNS: -0.045 ns
-Slow 0C setup WNS: -0.035 ns
-Hold worst: +0.121 ns
+src/fpga/gba/gba_cpu.vhd
 ```
 
-This was the best valid HDL state before seed exploration. The original memorymux-to-CPU violation was gone, and the remaining violations were very small CPU/DMA placement-sensitive paths.
+Problem:
 
-### 7. Rejected a DMA cycle split experiment
+Once GPU and memorymux pressure were reduced, the remaining failures moved into small CPU-local paths.
+
+Changes:
+
+CPU mode comparisons are now cached as one-bit mode flags, so register-bank switching does not repeatedly compare `cpu_mode` and `cpu_mode_old` against every mode constant in the critical block:
+
+```text
+cpu_mode_user_system
+cpu_mode_fiq
+cpu_mode_irq
+cpu_mode_supervisor
+cpu_mode_abort
+cpu_mode_undefined
+```
+
+The code-prefetch penalty is now precomputed in `memoryWaitPrefetchPenalty` and read as `codePrefetchPenalty`, replacing repeated expressions like:
+
+```text
+codeticksAccess16 - codeticksAccessSeq16 - 1
+```
+
+Load writeback was split from ALU/calc writeback:
+
+```text
+execute_writeback_calc
+execute_writeback_load
+load_writeback_reg
+```
+
+The final commit also added an intermediate multiply product register:
+
+```text
+mul_product <= mul_op1 * mul_op2;
+mul_result  <= mul_product;
+```
+
+Conclusion:
+
+These were not broad rewrites. They were small, path-specific CPU changes made after the reports had narrowed the remaining misses to CPU-local paths.
+
+### 9. Rejected a DMA cycle split experiment
 
 An experiment split `new_cycles`/`new_cycles_valid` for DMA.
 
@@ -274,7 +336,7 @@ Conclusion:
 
 The split made timing much worse and increased logic. It was reverted.
 
-### 8. Rejected higher placement effort
+### 10. Kept higher placement effort and seed 8 for the final netlist
 
 File:
 
@@ -282,13 +344,16 @@ File:
 src/fpga/build/ap_core.qsf
 ```
 
-Experiment:
+Final branch-tip assignments:
 
 ```text
-PLACEMENT_EFFORT_MULTIPLIER 2.0 -> 4.0
+set_global_assignment -name PLACEMENT_EFFORT_MULTIPLIER 4.0
+set_global_assignment -name SEED 8
 ```
 
-Result:
+Earlier note:
+
+An intermediate test of `PLACEMENT_EFFORT_MULTIPLIER 4.0` on an earlier netlist was bad:
 
 ```text
 Slow 85C setup WNS: -0.554 ns
@@ -298,11 +363,9 @@ TNS: -3.810 ns
 
 Conclusion:
 
-Higher placement effort was not helpful for this netlist/seed. It was reverted to `2.0`.
+That result was netlist-dependent. The branch tip currently keeps `PLACEMENT_EFFORT_MULTIPLIER 4.0`, and the final passing build uses seed `8`.
 
-### 9. Swept fitter seeds
-
-The near-closing valid state was only missing by a few hundredths of a nanosecond, so a fitter seed sweep was the next low-risk lever.
+Seed `8` was the winning placement on the final near-closing RTL state.
 
 Seed 7 result:
 
@@ -322,19 +385,19 @@ SDRAM read: +0.102 ns
 SDRAM write: +2.867 ns
 ```
 
-Seed 8 was promoted in:
+Seed `8` was promoted in:
 
 ```text
 src/fpga/build/ap_core.qsf
 ```
 
-Final assignment:
+Final seed assignment:
 
 ```text
 set_global_assignment -name SEED 8
 ```
 
-### 10. Added persistent detailed slow 0C reporting
+### 11. Added persistent detailed slow 0C reporting
 
 File:
 
@@ -401,22 +464,23 @@ build_output/reports/ap_core.sta.sdram_write.rpt
 
 The original theory was correct in the useful sense: GPU drawer/video logic was the primary reason current `master` did not close at slow 0C. The diagnostic false-path probe made timing pass, and real HDL cleanup in OBJ/mode0 moved the top failures out of the GPU.
 
-The final closure also showed that the GPU was not the only timing-sensitive area once the first bottleneck was removed. After GPU cleanup, the critical paths moved to CPU/memorymux/DMA-adjacent logic. The same-cycle `mem_bus_done_cpu` duplicate removed the worst memorymux-to-CPU pressure, and seed 8 handled the remaining small placement-sensitive miss.
+The final closure also showed that the GPU was not the only timing-sensitive area once the first bottleneck was removed. After GPU cleanup, the critical paths moved to CPU/memorymux/DMA-adjacent logic. The branch tip closes those remaining paths with the `READPAK_CACHE` memorymux split, CPU-local cleanup, `PLACEMENT_EFFORT_MULTIPLIER 4.0`, and seed `8`.
 
 ## What This Does Not Prove
 
 This work does not prove that a blanket SDC exception on GPU drawer paths is safe. The false-path probe was only diagnostic.
 
-This work also does not prove functional correctness by simulation or gameplay testing. The final verification was full Quartus build plus STA. The `mem_bus_done_cpu` change is intended to be behavior-preserving because it duplicates the same registered value in the same cycle, but it should still be treated as an HDL change worth runtime smoke testing.
+This work also does not prove functional correctness by simulation or gameplay testing. The final verification was full Quartus build plus STA. The memorymux `READPAK_CACHE` split and CPU writeback/multiply changes are real RTL changes, so the final bitstream should still be treated as worth runtime smoke testing.
 
 ## Final Changed Files
 
 ```text
 scripts/sta_custom_report.tcl
 src/fpga/build/ap_core.qsf
+src/fpga/gba/gba_cpu.vhd
 src/fpga/gba/gba_drawer_mode0.vhd
 src/fpga/gba/gba_drawer_obj.vhd
 src/fpga/gba/gba_memorymux.vhd
 src/fpga/gba/gba_top.vhd
+timing.md
 ```
-
