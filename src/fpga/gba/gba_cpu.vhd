@@ -91,6 +91,40 @@ architecture arch of gba_cpu is
    constant CPUMODE_ABORT      : std_logic_vector(3 downto 0) := x"7";
    constant CPUMODE_UNDEFINED  : std_logic_vector(3 downto 0) := x"B";
    constant CPUMODE_SYSTEM     : std_logic_vector(3 downto 0) := x"F";
+
+   function mode_user_system(mode : std_logic_vector(3 downto 0)) return std_logic is
+   begin
+      if (mode = CPUMODE_USER or mode = CPUMODE_SYSTEM) then
+         return '1';
+      else
+         return '0';
+      end if;
+   end function;
+
+   function mode_fiq(mode : std_logic_vector(3 downto 0)) return std_logic is
+   begin
+      if (mode = CPUMODE_FIQ) then return '1'; else return '0'; end if;
+   end function;
+
+   function mode_irq(mode : std_logic_vector(3 downto 0)) return std_logic is
+   begin
+      if (mode = CPUMODE_IRQ) then return '1'; else return '0'; end if;
+   end function;
+
+   function mode_supervisor(mode : std_logic_vector(3 downto 0)) return std_logic is
+   begin
+      if (mode = CPUMODE_SUPERVISOR) then return '1'; else return '0'; end if;
+   end function;
+
+   function mode_abort(mode : std_logic_vector(3 downto 0)) return std_logic is
+   begin
+      if (mode = CPUMODE_ABORT) then return '1'; else return '0'; end if;
+   end function;
+
+   function mode_undefined(mode : std_logic_vector(3 downto 0)) return std_logic is
+   begin
+      if (mode = CPUMODE_UNDEFINED) then return '1'; else return '0'; end if;
+   end function;
    
    signal thumbmode        : std_logic := '0';
    signal halt             : std_logic := '0';
@@ -105,6 +139,18 @@ architecture arch of gba_cpu is
    
    signal cpu_mode         : std_logic_vector(3 downto 0) := CPUMODE_SUPERVISOR;
    signal cpu_mode_old     : std_logic_vector(3 downto 0) := (others => '0');
+   signal cpu_mode_user_system     : std_logic := '0';
+   signal cpu_mode_fiq             : std_logic := '0';
+   signal cpu_mode_irq             : std_logic := '0';
+   signal cpu_mode_supervisor      : std_logic := '1';
+   signal cpu_mode_abort           : std_logic := '0';
+   signal cpu_mode_undefined       : std_logic := '0';
+   signal cpu_mode_old_user_system : std_logic := '1';
+   signal cpu_mode_old_fiq         : std_logic := '0';
+   signal cpu_mode_old_irq         : std_logic := '0';
+   signal cpu_mode_old_supervisor  : std_logic := '0';
+   signal cpu_mode_old_abort       : std_logic := '0';
+   signal cpu_mode_old_undefined   : std_logic := '0';
 
    type t_regs is array(0 to 17) of unsigned(31 downto 0);
    signal regs : t_regs := (others => (others => '0'));
@@ -178,10 +224,12 @@ architecture arch of gba_cpu is
    signal nextOpCodeAccessSeq32 : integer range 0 to 31 := 0;
    
    type t_timingarray is array(0 to 15) of integer range 0 to 31;
+   type t_timingdeltaarray is array(0 to 15) of integer range -8 to 8;
    signal memoryWait16    : t_timingarray := (0, 0, 2, 0, 0, 0, 0, 0, 4, 4, 4, 4,  4,  4, 4, 0);
    signal memoryWait32    : t_timingarray := (0, 0, 5, 0, 0, 1, 1, 0, 7, 7, 9, 9, 13, 13, 4, 0);
    signal memoryWaitSeq16 : t_timingarray := (0, 0, 2, 0, 0, 0, 0, 0, 2, 2, 4, 4,  8,  8, 4, 0);
    signal memoryWaitSeq32 : t_timingarray := (0, 0, 5, 0, 0, 1, 1, 0, 5, 5, 9, 9, 17, 17, 4, 0);
+   signal memoryWaitPrefetchPenalty : t_timingdeltaarray := (-1, -1, -1, -1, -1, -1, -1, -1, 1, 1, -1, -1, -5, -5, -1, -1);
    
    type t_timings_2 is array(0 to 1) of integer range 1 to 8;
    type t_timings_4 is array(0 to 3) of integer range 1 to 8;
@@ -201,6 +249,7 @@ architecture arch of gba_cpu is
    signal busPrefetchMax     : integer range 0 to 64;
    signal prefetch_addcycles : integer range 0 to 31;
    signal prefetch_subcycles : integer range 0 to 31;
+   signal codePrefetchPenalty : integer range -8 to 8 := 0;
    
    -- ############# Fetch ##############
    
@@ -926,21 +975,21 @@ begin
                end case;
             end if;
             
-            if (execute_saveState = '1' or (cpu_mode = CPUMODE_USER or cpu_mode = CPUMODE_SYSTEM)) then
+            if (execute_saveState = '1' or cpu_mode_user_system = '1') then
                regs(17) <= regs(16); -- User mode reads SPSR as CPSR
             end if;
 
             if (execute_switchregs = '1') then
 
                -- Store current regs into mode regs
-               if (cpu_mode = CPUMODE_FIQ) then
+               if (cpu_mode_fiq = '1') then
                   regs_0_8  <= regs(8);
                   regs_0_9  <= regs(9);
                   regs_0_10 <= regs(10);
                   regs_0_11 <= regs(11);
                   regs_0_12 <= regs(12);
                end if;
-               if (cpu_mode_old = CPUMODE_FIQ) then
+               if (cpu_mode_old_fiq = '1') then
                   regs_1_8  <= regs(8);
                   regs_1_9  <= regs(9);
                   regs_1_10 <= regs(10);
@@ -949,47 +998,41 @@ begin
                   regs_1_13 <= regs(13);
                end if;
 
-               case (cpu_mode_old) is
-                  when CPUMODE_USER | CPUMODE_SYSTEM =>
-                     regs_0_13 <= regs(13);
-                     regs_0_14 <= regs(14);
-
-                  when CPUMODE_FIQ =>
-                     regs_1_14 <= regs(14);
-                     regs_1_17 <= regs(17);
-
-                  when CPUMODE_IRQ =>
-                     regs_2_13 <= regs(13);
-                     regs_2_14 <= regs(14);
-                     regs_2_17 <= regs(17);
-
-                  when CPUMODE_SUPERVISOR =>
-                     regs_3_13 <= regs(13);
-                     regs_3_14 <= regs(14);
-                     regs_3_17 <= regs(17);
-
-                  when CPUMODE_ABORT =>
-                     regs_4_13 <= regs(13);
-                     regs_4_14 <= regs(14);
-                     regs_4_17 <= regs(17);
-
-                  when CPUMODE_UNDEFINED =>
-                     regs_5_13 <= regs(13);
-                     regs_5_14 <= regs(14);
-                     regs_5_17 <= regs(17);
-                     
-                  when others => report "should never happen" severity failure; 
-               end case;
+               if (cpu_mode_old_user_system = '1') then
+                  regs_0_13 <= regs(13);
+                  regs_0_14 <= regs(14);
+               elsif (cpu_mode_old_fiq = '1') then
+                  regs_1_14 <= regs(14);
+                  regs_1_17 <= regs(17);
+               elsif (cpu_mode_old_irq = '1') then
+                  regs_2_13 <= regs(13);
+                  regs_2_14 <= regs(14);
+                  regs_2_17 <= regs(17);
+               elsif (cpu_mode_old_supervisor = '1') then
+                  regs_3_13 <= regs(13);
+                  regs_3_14 <= regs(14);
+                  regs_3_17 <= regs(17);
+               elsif (cpu_mode_old_abort = '1') then
+                  regs_4_13 <= regs(13);
+                  regs_4_14 <= regs(14);
+                  regs_4_17 <= regs(17);
+               elsif (cpu_mode_old_undefined = '1') then
+                  regs_5_13 <= regs(13);
+                  regs_5_14 <= regs(14);
+                  regs_5_17 <= regs(17);
+               else
+                  report "should never happen" severity failure;
+               end if;
 
                -- Restore mode regs into current regs
-               if (cpu_mode_old = CPUMODE_FIQ) then
+               if (cpu_mode_old_fiq = '1') then
                   regs(8)  <= regs_0_8;
                   regs(9)  <= regs_0_9;
                   regs(10) <= regs_0_10;
                   regs(11) <= regs_0_11;
                   regs(12) <= regs_0_12;
                end if;
-               if (cpu_mode = CPUMODE_FIQ) then
+               if (cpu_mode_fiq = '1') then
                   regs(8)  <= regs_1_8;
                   regs(9)  <= regs_1_9;
                   regs(10) <= regs_1_10;
@@ -997,52 +1040,46 @@ begin
                   regs(12) <= regs_1_12;
                end if;
 
-               case (cpu_mode) is
-                  when CPUMODE_USER | CPUMODE_SYSTEM =>
-                     regs(13) <= regs_0_13;
-                     regs(14) <= regs_0_14;
-  
-                  when CPUMODE_FIQ =>
-                     regs(13) <= regs_1_13;
-                     regs(14) <= regs_1_14;
-                     if (execute_saveState = '0') then
-                        regs(17) <= regs_1_17;
-                     end if;
-
-                  when CPUMODE_IRQ =>
-                     regs(13) <= regs_2_13;
-                     if (execute_IRP = '0') then
-                        regs(14) <= regs_2_14;
-                     end if;
-                     if (execute_saveState = '0') then
-                        regs(17) <= regs_2_17;
-                     end if;
-
-                  when CPUMODE_SUPERVISOR =>
-                     regs(13) <= regs_3_13;
-                     if (execute_SWI = '0') then
-                        regs(14) <= regs_3_14;
-                     end if;
-                     if (execute_saveState = '0') then
-                        regs(17) <= regs_3_17;
-                     end if;
-
-                  when CPUMODE_ABORT =>
-                     regs(13) <= regs_4_13;
-                     regs(14) <= regs_4_14;
-                     if (execute_saveState = '0') then
-                        regs(17) <= regs_4_17;
-                     end if;
-
-                  when CPUMODE_UNDEFINED =>
-                     regs(13) <= regs_5_13;
-                     regs(14) <= regs_5_14;
-                     if (execute_saveState = '0') then
-                        regs(17) <= regs_5_17;
-                     end if;
-
-                  when others => report "should never happen" severity failure; 
-               end case;
+               if (cpu_mode_user_system = '1') then
+                  regs(13) <= regs_0_13;
+                  regs(14) <= regs_0_14;
+               elsif (cpu_mode_fiq = '1') then
+                  regs(13) <= regs_1_13;
+                  regs(14) <= regs_1_14;
+                  if (execute_saveState = '0') then
+                     regs(17) <= regs_1_17;
+                  end if;
+               elsif (cpu_mode_irq = '1') then
+                  regs(13) <= regs_2_13;
+                  if (execute_IRP = '0') then
+                     regs(14) <= regs_2_14;
+                  end if;
+                  if (execute_saveState = '0') then
+                     regs(17) <= regs_2_17;
+                  end if;
+               elsif (cpu_mode_supervisor = '1') then
+                  regs(13) <= regs_3_13;
+                  if (execute_SWI = '0') then
+                     regs(14) <= regs_3_14;
+                  end if;
+                  if (execute_saveState = '0') then
+                     regs(17) <= regs_3_17;
+                  end if;
+               elsif (cpu_mode_abort = '1') then
+                  regs(13) <= regs_4_13;
+                  regs(14) <= regs_4_14;
+                  if (execute_saveState = '0') then
+                     regs(17) <= regs_4_17;
+                  end if;
+               elsif (cpu_mode_undefined = '1') then
+                  regs(13) <= regs_5_13;
+                  regs(14) <= regs_5_14;
+                  if (execute_saveState = '0') then
+                     regs(17) <= regs_5_17;
+                  end if;
+               else
+                  report "should never happen" severity failure;
+               end if;
 
             end if;
             
@@ -1966,6 +2003,7 @@ begin
             memoryWait32    <= (0, 0, 5, 0, 0, 1, 1, 0, 7, 7, 9, 9, 13, 13, 4, 0);
             memoryWaitSeq16 <= (0, 0, 2, 0, 0, 0, 0, 0, 2, 2, 4, 4,  8,  8, 4, 0);
             memoryWaitSeq32 <= (0, 0, 5, 0, 0, 1, 1, 0, 5, 5, 9, 9, 17, 17, 4, 0);
+            memoryWaitPrefetchPenalty <= (-1, -1, -1, -1, -1, -1, -1, -1, 1, 1, -1, -1, -5, -5, -1, -1);
             
             busPrefetchEnable <= '0';
             
@@ -1998,6 +2036,7 @@ begin
                for i in 8 to 14 loop
                   memoryWait32(i)    <= memoryWait16(i) + memoryWaitSeq16(i) + 1;
                   memoryWaitSeq32(i) <= memoryWaitSeq16(i) + memoryWaitSeq16(i) + 1;
+                  memoryWaitPrefetchPenalty(i) <= memoryWait16(i) - memoryWaitSeq16(i) - 1;
                end loop;
                
             end if;
@@ -2038,6 +2077,7 @@ begin
    codeticksAccess32        <=    memoryWait32(to_integer(unsigned(PC(27 downto 24))));
    codeticksAccessSeq16     <= memoryWaitSeq16(to_integer(unsigned(PC(27 downto 24))));
    codeticksAccessSeq32     <= memoryWaitSeq32(to_integer(unsigned(PC(27 downto 24))));   
+   codePrefetchPenalty      <= memoryWaitPrefetchPenalty(to_integer(unsigned(PC(27 downto 24))));
    
    codeticksAccessJump16    <=    memoryWait16(to_integer(unsigned(new_pc(27 downto 24))));
    codeticksAccessJump32    <=    memoryWait32(to_integer(unsigned(new_pc(27 downto 24))));
@@ -2105,6 +2145,18 @@ begin
             Flag_V_Overflow <= SAVESTATE_Flag_V_Overflow;
             thumbmode       <= SAVESTATE_thumbmode;      
             cpu_mode        <= SAVESTATE_cpu_mode;       
+            cpu_mode_user_system     <= mode_user_system(SAVESTATE_cpu_mode);
+            cpu_mode_fiq             <= mode_fiq(SAVESTATE_cpu_mode);
+            cpu_mode_irq             <= mode_irq(SAVESTATE_cpu_mode);
+            cpu_mode_supervisor      <= mode_supervisor(SAVESTATE_cpu_mode);
+            cpu_mode_abort           <= mode_abort(SAVESTATE_cpu_mode);
+            cpu_mode_undefined       <= mode_undefined(SAVESTATE_cpu_mode);
+            cpu_mode_old_user_system <= mode_user_system(SAVESTATE_cpu_mode);
+            cpu_mode_old_fiq         <= mode_fiq(SAVESTATE_cpu_mode);
+            cpu_mode_old_irq         <= mode_irq(SAVESTATE_cpu_mode);
+            cpu_mode_old_supervisor  <= mode_supervisor(SAVESTATE_cpu_mode);
+            cpu_mode_old_abort       <= mode_abort(SAVESTATE_cpu_mode);
+            cpu_mode_old_undefined   <= mode_undefined(SAVESTATE_cpu_mode);
             IRQ_disable     <= SAVESTATE_IRQ_disable;    
             FIQ_disable     <= SAVESTATE_FIQ_disable;    
             
@@ -2162,6 +2214,18 @@ begin
                execute_IRP        <= '1';
                cpu_mode_old       <= cpu_mode;
                cpu_mode           <= CPUMODE_IRQ;
+               cpu_mode_old_user_system <= cpu_mode_user_system;
+               cpu_mode_old_fiq         <= cpu_mode_fiq;
+               cpu_mode_old_irq         <= cpu_mode_irq;
+               cpu_mode_old_supervisor  <= cpu_mode_supervisor;
+               cpu_mode_old_abort       <= cpu_mode_abort;
+               cpu_mode_old_undefined   <= cpu_mode_undefined;
+               cpu_mode_user_system     <= mode_user_system(CPUMODE_IRQ);
+               cpu_mode_fiq             <= mode_fiq(CPUMODE_IRQ);
+               cpu_mode_irq             <= mode_irq(CPUMODE_IRQ);
+               cpu_mode_supervisor      <= mode_supervisor(CPUMODE_IRQ);
+               cpu_mode_abort           <= mode_abort(CPUMODE_IRQ);
+               cpu_mode_undefined       <= mode_undefined(CPUMODE_IRQ);
                thumbmode          <= '0';
                IRQ_disable        <= '1';
                new_pc             <= to_unsigned(16#18#, new_pc'length);
@@ -2371,8 +2435,20 @@ begin
                            execute_switchregs  <= '0';
                         end if;
                         cpu_mode_old           <= cpu_mode;
+                        cpu_mode_old_user_system <= cpu_mode_user_system;
+                        cpu_mode_old_fiq         <= cpu_mode_fiq;
+                        cpu_mode_old_irq         <= cpu_mode_irq;
+                        cpu_mode_old_supervisor  <= cpu_mode_supervisor;
+                        cpu_mode_old_abort       <= cpu_mode_abort;
+                        cpu_mode_old_undefined   <= cpu_mode_undefined;
                         if (execute_leaveirp_user = '0') then
                            cpu_mode               <= std_logic_vector(regs(17)(3 downto 0));
+                           cpu_mode_user_system   <= mode_user_system(std_logic_vector(regs(17)(3 downto 0)));
+                           cpu_mode_fiq           <= mode_fiq(std_logic_vector(regs(17)(3 downto 0)));
+                           cpu_mode_irq           <= mode_irq(std_logic_vector(regs(17)(3 downto 0)));
+                           cpu_mode_supervisor    <= mode_supervisor(std_logic_vector(regs(17)(3 downto 0)));
+                           cpu_mode_abort         <= mode_abort(std_logic_vector(regs(17)(3 downto 0)));
+                           cpu_mode_undefined     <= mode_undefined(std_logic_vector(regs(17)(3 downto 0)));
                            thumbmode              <= regs(17)(5);
                            FIQ_disable            <= regs(17)(6);
                            IRQ_disable            <= regs(17)(7);
@@ -2584,6 +2660,18 @@ begin
                         end if;
                         cpu_mode_old       <= cpu_mode;
                         cpu_mode           <= std_logic_vector(new_value(3 downto 0));
+                        cpu_mode_old_user_system <= cpu_mode_user_system;
+                        cpu_mode_old_fiq         <= cpu_mode_fiq;
+                        cpu_mode_old_irq         <= cpu_mode_irq;
+                        cpu_mode_old_supervisor  <= cpu_mode_supervisor;
+                        cpu_mode_old_abort       <= cpu_mode_abort;
+                        cpu_mode_old_undefined   <= cpu_mode_undefined;
+                        cpu_mode_user_system     <= mode_user_system(std_logic_vector(new_value(3 downto 0)));
+                        cpu_mode_fiq             <= mode_fiq(std_logic_vector(new_value(3 downto 0)));
+                        cpu_mode_irq             <= mode_irq(std_logic_vector(new_value(3 downto 0)));
+                        cpu_mode_supervisor      <= mode_supervisor(std_logic_vector(new_value(3 downto 0)));
+                        cpu_mode_abort           <= mode_abort(std_logic_vector(new_value(3 downto 0)));
+                        cpu_mode_undefined       <= mode_undefined(std_logic_vector(new_value(3 downto 0)));
                         thumbmode          <= new_value(5);
                         FIQ_disable        <= new_value(6);
                         IRQ_disable        <= new_value(7);
@@ -2715,7 +2803,7 @@ begin
                               busPrefetchAdd     <= '1';
                               busPrefetchClear   <= busaddress(27);
                               execute_addcycles  <= 3 + dataTicksAccess32 + dataTicksAccess32;
-                              prefetch_addcycles <= 3 + dataTicksAccess32 + dataTicksAccess32 + (codeticksAccess16 - codeticksAccessSeq16 - 1);
+                              prefetch_addcycles <= 3 + dataTicksAccess32 + dataTicksAccess32 + codePrefetchPenalty;
                            elsif (execute_datatransfer_swap = '0') then
                               busPrefetchAdd    <= '1';
                               busPrefetchClear  <= busaddress(27);
@@ -2723,20 +2811,20 @@ begin
                                  case (execute_datatransfer_type) is
                                     when ACCESS_8BIT | ACCESS_16BIT => 
                                        execute_addcycles  <= 3 + dataTicksAccess16;
-                                       prefetch_addcycles <= 3 + dataTicksAccess16 + (codeticksAccess16 - codeticksAccessSeq16 - 1);
+                                       prefetch_addcycles <= 3 + dataTicksAccess16 + codePrefetchPenalty;
                                     when ACCESS_32BIT               => 
                                        execute_addcycles  <= 3 + dataTicksAccess32;
-                                       prefetch_addcycles <= 3 + dataTicksAccess32 + (codeticksAccess16 - codeticksAccessSeq16 - 1);
+                                       prefetch_addcycles <= 3 + dataTicksAccess32 + codePrefetchPenalty;
                                     when others => null;
                                  end case;
                               else
                                  case (execute_datatransfer_type) is
                                     when ACCESS_8BIT | ACCESS_16BIT => 
                                        execute_addcycles  <= 2 + dataTicksAccess16;
-                                       prefetch_addcycles <= 2 + dataTicksAccess16 + (codeticksAccess16 - codeticksAccessSeq16 - 1);
+                                       prefetch_addcycles <= 2 + dataTicksAccess16 + codePrefetchPenalty;
                                     when ACCESS_32BIT => 
                                        execute_addcycles  <= 2 + dataTicksAccess32;
-                                       prefetch_addcycles <= 2 + dataTicksAccess32 + (codeticksAccess16 - codeticksAccessSeq16 - 1);
+                                       prefetch_addcycles <= 2 + dataTicksAccess32 + codePrefetchPenalty;
                                     when others => null;
                                  end case;
                               end if;
@@ -2901,10 +2989,10 @@ begin
                            busPrefetchClear <= busaddress(27);
                            if (first_mem_access = '1') then
                               execute_addcycles  <= 1 + dataTicksAccess32;
-                              prefetch_addcycles <= 2 + dataTicksAccess32 + (codeticksAccess16 - codeticksAccessSeq16 - 1);
+                              prefetch_addcycles <= 2 + dataTicksAccess32 + codePrefetchPenalty;
                            else
                               execute_addcycles  <= 1 + dataTicksAccessSeq32;
-                              prefetch_addcycles <= 1 + dataTicksAccessSeq32 + (codeticksAccess16 - codeticksAccessSeq16 - 1);
+                              prefetch_addcycles <= 1 + dataTicksAccessSeq32 + codePrefetchPenalty;
                            end if;
                         end if;
                         
@@ -2933,10 +3021,10 @@ begin
                            busPrefetchClear <= busaddress(27);
                            if (first_mem_access = '1') then
                               execute_addcycles  <= 2 + dataTicksAccess32;
-                              prefetch_addcycles <= 3 + dataTicksAccess32 + (codeticksAccess16 - codeticksAccessSeq16 - 1);
+                              prefetch_addcycles <= 3 + dataTicksAccess32 + codePrefetchPenalty;
                            else
                               execute_addcycles  <= 1 + dataTicksAccessSeq32;
-                              prefetch_addcycles <= 1 + dataTicksAccessSeq32 + (codeticksAccess16 - codeticksAccessSeq16 - 1);
+                              prefetch_addcycles <= 1 + dataTicksAccessSeq32 + codePrefetchPenalty;
                            end if;
                         end if;
                       
@@ -2992,6 +3080,18 @@ begin
                         end if;
                         cpu_mode_old       <= cpu_mode;
                         cpu_mode           <= std_logic_vector(regs(17)(3 downto 0));
+                        cpu_mode_old_user_system <= cpu_mode_user_system;
+                        cpu_mode_old_fiq         <= cpu_mode_fiq;
+                        cpu_mode_old_irq         <= cpu_mode_irq;
+                        cpu_mode_old_supervisor  <= cpu_mode_supervisor;
+                        cpu_mode_old_abort       <= cpu_mode_abort;
+                        cpu_mode_old_undefined   <= cpu_mode_undefined;
+                        cpu_mode_user_system     <= mode_user_system(std_logic_vector(regs(17)(3 downto 0)));
+                        cpu_mode_fiq             <= mode_fiq(std_logic_vector(regs(17)(3 downto 0)));
+                        cpu_mode_irq             <= mode_irq(std_logic_vector(regs(17)(3 downto 0)));
+                        cpu_mode_supervisor      <= mode_supervisor(std_logic_vector(regs(17)(3 downto 0)));
+                        cpu_mode_abort           <= mode_abort(std_logic_vector(regs(17)(3 downto 0)));
+                        cpu_mode_undefined       <= mode_undefined(std_logic_vector(regs(17)(3 downto 0)));
                         thumbmode          <= regs(17)(5);
                         FIQ_disable        <= regs(17)(6);
                         IRQ_disable        <= regs(17)(7);
@@ -3039,6 +3139,18 @@ begin
                      end if;
                      cpu_mode_old       <= cpu_mode;
                      cpu_mode           <= CPUMODE_SUPERVISOR;
+                     cpu_mode_old_user_system <= cpu_mode_user_system;
+                     cpu_mode_old_fiq         <= cpu_mode_fiq;
+                     cpu_mode_old_irq         <= cpu_mode_irq;
+                     cpu_mode_old_supervisor  <= cpu_mode_supervisor;
+                     cpu_mode_old_abort       <= cpu_mode_abort;
+                     cpu_mode_old_undefined   <= cpu_mode_undefined;
+                     cpu_mode_user_system     <= mode_user_system(CPUMODE_SUPERVISOR);
+                     cpu_mode_fiq             <= mode_fiq(CPUMODE_SUPERVISOR);
+                     cpu_mode_irq             <= mode_irq(CPUMODE_SUPERVISOR);
+                     cpu_mode_supervisor      <= mode_supervisor(CPUMODE_SUPERVISOR);
+                     cpu_mode_abort           <= mode_abort(CPUMODE_SUPERVISOR);
+                     cpu_mode_undefined       <= mode_undefined(CPUMODE_SUPERVISOR);
                      thumbmode          <= '0';
                      IRQ_disable        <= '1';
                      -- only switch for when not in system/usermode?
@@ -3423,8 +3535,3 @@ begin
 -- synthesis translate_on
 
 end architecture;
-
-
-
-
-

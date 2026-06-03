@@ -46,7 +46,6 @@ entity gba_memorymux is
       mem_bus_dout         : in     std_logic_vector(31 downto 0);
       mem_bus_din          : out    std_logic_vector(31 downto 0) := (others => '0');
       mem_bus_done         : out    std_logic;
-      mem_bus_done_cpu     : out    std_logic;
       mem_bus_unread       : out    std_logic;
       
       bios_wraddr          : in     std_logic_vector(11 downto 0) := (others => '0');
@@ -119,10 +118,6 @@ entity gba_memorymux is
       
       debug_mem            : out    std_logic_vector(31 downto 0)  
    );
-
-   attribute preserve : boolean;
-   attribute preserve of mem_bus_done     : signal is true;
-   attribute preserve of mem_bus_done_cpu : signal is true;
 end entity;
 
 architecture arch of gba_memorymux is
@@ -134,6 +129,7 @@ architecture arch of gba_memorymux is
    (
       IDLE,
       ADDR_DECODE,
+      READPAK_CACHE,
       READBIOS,
       READSMALLRAM,
       READPALETTERAM,
@@ -373,11 +369,6 @@ begin
       variable palette_we : std_logic_vector(3 downto 0);
       variable VRAM_be    : std_logic_vector(3 downto 0);
 
-      procedure set_mem_bus_done(value : std_logic) is
-      begin
-         mem_bus_done     <= value;
-         mem_bus_done_cpu <= value;
-      end procedure;
    begin
       if rising_edge(clk100) then
       
@@ -449,7 +440,7 @@ begin
          GPIO_readEna    <= '0';
          GPIO_writeEna   <= '0';
          
-         set_mem_bus_done('0');
+         mem_bus_done <= '0';
          mem_bus_unread  <= '0';
          unread_next     <= '0';
          
@@ -473,17 +464,8 @@ begin
                   else
                      upper_nonzero <= '0';
                   end if;
-                  -- Pre-compute SDRAM buffer hit to break critical path in ADDR_DECODE
-                  if (sdram_addr_buf = mem_bus_Adr(24 downto 3) and mem_bus_Adr(0) = '0' and mem_bus_acc = ACCESS_16BIT) then
-                     sdram_buf_hit_16 <= '1';
-                  else
-                     sdram_buf_hit_16 <= '0';
-                  end if;
-                  if (sdram_addr_buf = mem_bus_Adr(24 downto 3) and mem_bus_Adr(1 downto 0) = "00" and mem_bus_acc = ACCESS_32BIT) then
-                     sdram_buf_hit_32 <= '1';
-                  else
-                     sdram_buf_hit_32 <= '0';
-                  end if;
+                  sdram_buf_hit_16 <= '0';
+                  sdram_buf_hit_32 <= '0';
                   state <= ADDR_DECODE;
                end if;
 
@@ -555,47 +537,24 @@ begin
                         when x"8" | x"9" | x"A" | x"B" | x"C" =>
                            if (unsigned(adr_save(24 downto 2)) >= unsigned(MaxPakAddr)) then
                               state       <= READAFTERPAK;
-                           elsif (sdram_buf_hit_16 = '1') then
-                              set_mem_bus_done('1');
-                              state        <= IDLE;
-                              if (adr_save(2) = '0') then
-                                 if (adr_save(1) = '0') then
-                                    mem_bus_din <= x"0000" & sdram_data_buf(15 downto 0);
-                                 else
-                                    mem_bus_din <= x"0000" & sdram_data_buf(31 downto 16);
-                                 end if;
-                              else
-                                 if (adr_save(1) = '0') then
-                                    mem_bus_din <= x"0000" & sdram_data_buf(47 downto 32);
-                                 else
-                                    mem_bus_din <= x"0000" & sdram_data_buf(63 downto 48);
-                                 end if;
-                              end if;
-                           elsif (sdram_buf_hit_32 = '1') then
-                              set_mem_bus_done('1');
-                              state        <= IDLE;
-                              if (adr_save(2) = '0') then
-                                 mem_bus_din <= sdram_data_buf(31 downto 0);
-                              else
-                                 mem_bus_din <= sdram_data_buf(63 downto 32);
-                              end if;
+                           elsif (specialmodule = '1' and unsigned(adr_save) >= 16#80000C4# and unsigned(adr_save) <= 16#80000C8#) then
+                              state             <= READ_GPIO;
+                              mem_bus_done <= '0';
+                              cache_read_enable <= '0';
+                              GPIO_readEna      <= '1';
+                              GPIO_addr         <= std_logic_vector(to_unsigned(to_integer(unsigned(adr_save(3 downto 1))) - 4 / 2, 2));
                            else
-                              cache_read_enable <= '1';
-                              if (memory_remap = '1') then
-                                 cache_read_addr   <= "00000" & adr_save(19 downto 2);
+                              if (sdram_addr_buf = adr_save(24 downto 3) and adr_save(0) = '0' and acc_save = ACCESS_16BIT) then
+                                 sdram_buf_hit_16 <= '1';
                               else
-                                 cache_read_addr   <= adr_save(24 downto 2);
+                                 sdram_buf_hit_16 <= '0';
                               end if;
-                              state             <= WAIT_SDRAM;
-                           end if;
-                           if (specialmodule = '1') then
-                              if (unsigned(adr_save) >= 16#80000C4# and unsigned(adr_save) <= 16#80000C8#) then
-                                 state             <= READ_GPIO;
-                                 set_mem_bus_done('0');
-                                 cache_read_enable <= '0';
-                                 GPIO_readEna      <= '1';
-                                 GPIO_addr         <= std_logic_vector(to_unsigned(to_integer(unsigned(adr_save(3 downto 1))) - 4 / 2, 2));
+                              if (sdram_addr_buf = adr_save(24 downto 3) and adr_save(1 downto 0) = "00" and acc_save = ACCESS_32BIT) then
+                                 sdram_buf_hit_32 <= '1';
+                              else
+                                 sdram_buf_hit_32 <= '0';
                               end if;
+                              state <= READPAK_CACHE;
                            end if;
 
                         when x"D" =>
@@ -625,7 +584,7 @@ begin
                   read_operation   <= '0';
 
                   if (upper_nonzero = '1') then
-                     set_mem_bus_done('1');
+                     mem_bus_done <= '1';
                      state        <= IDLE;
                   else
 
@@ -641,18 +600,18 @@ begin
                            end if;
 
                         -- done is ok, if the next state goes back to idle without conditions
-                        when x"3" => state <= WRITE_WRAMSMALL; set_mem_bus_done('1');
+                        when x"3" => state <= WRITE_WRAMSMALL; mem_bus_done <= '1';
 
                         when x"4" =>
                            state <= WRITE_REG;
                            registersettle_cnt <= 7;
                            registersettle     <= '1';
 
-                        when x"5" => state <= WRITE_PALETTE;   set_mem_bus_done('1');
-                        when x"6" => state <= WRITE_VRAM;      set_mem_bus_done(not vram_blocked or adr_save(16)); vramwait <= vram_blocked;
-                        when x"7" => state <= WRITE_OAM;       set_mem_bus_done('1');
+                        when x"5" => state <= WRITE_PALETTE;   mem_bus_done <= '1';
+                        when x"6" => state <= WRITE_VRAM;      mem_bus_done <= not vram_blocked or adr_save(16); vramwait <= vram_blocked;
+                        when x"7" => state <= WRITE_OAM;       mem_bus_done <= '1';
                         when x"8" =>
-                           set_mem_bus_done('1');
+                           mem_bus_done <= '1';
                            state        <= IDLE;
                            if (specialmodule = '1') then
                               if (unsigned(adr_save) >= 16#80000C4# and unsigned(adr_save) <= 16#80000C8#) then
@@ -664,7 +623,7 @@ begin
 
                         when x"D" => state <= EEPROMWRITE;
                         when x"E" | x"F" => state <= FLASHSRAMWRITEDECIDE1; adr_save(1 downto 0) <= adr_save(1 downto 0) or bus_lowbits;
-                        when others => set_mem_bus_done('1'); state <= IDLE;
+                        when others => mem_bus_done <= '1'; state <= IDLE;
                      end case;
 
                   end if;
@@ -684,6 +643,41 @@ begin
 
                end if;
                
+            when READPAK_CACHE =>
+               if (sdram_buf_hit_16 = '1') then
+                  mem_bus_done <= '1';
+                  state        <= IDLE;
+                  if (adr_save(2) = '0') then
+                     if (adr_save(1) = '0') then
+                        mem_bus_din <= x"0000" & sdram_data_buf(15 downto 0);
+                     else
+                        mem_bus_din <= x"0000" & sdram_data_buf(31 downto 16);
+                     end if;
+                  else
+                     if (adr_save(1) = '0') then
+                        mem_bus_din <= x"0000" & sdram_data_buf(47 downto 32);
+                     else
+                        mem_bus_din <= x"0000" & sdram_data_buf(63 downto 48);
+                     end if;
+                  end if;
+               elsif (sdram_buf_hit_32 = '1') then
+                  mem_bus_done <= '1';
+                  state        <= IDLE;
+                  if (adr_save(2) = '0') then
+                     mem_bus_din <= sdram_data_buf(31 downto 0);
+                  else
+                     mem_bus_din <= sdram_data_buf(63 downto 32);
+                  end if;
+               else
+                  cache_read_enable <= '1';
+                  if (memory_remap = '1') then
+                     cache_read_addr <= "00000" & adr_save(19 downto 2);
+                  else
+                     cache_read_addr <= adr_save(24 downto 2);
+                  end if;
+                  state <= WAIT_SDRAM;
+               end if;
+
             -- reading
                
             when READBIOS => 
@@ -692,7 +686,7 @@ begin
                   rotate_data  <= bios_data;
                   state        <= ROTATE;
                else
-                  set_mem_bus_done('1'); 
+                  mem_bus_done <= '1'; 
                   state <= IDLE;
                   case (return_rotate) is
                      when "00" => mem_bus_din <= bios_data;
@@ -708,7 +702,7 @@ begin
                   rotate_data  <= smallram_DataOut;
                   state        <= ROTATE;
                elsif (acc_save = ACCESS_16BIT) then
-                  set_mem_bus_done('1'); 
+                  mem_bus_done <= '1'; 
                   state <= IDLE;
                   case (return_rotate) is
                      when "00" => mem_bus_din <= x"0000" & smallram_DataOut(15 downto 0);
@@ -718,7 +712,7 @@ begin
                      when others => null;
                   end case;
                else
-                  set_mem_bus_done('1'); 
+                  mem_bus_done <= '1'; 
                   state <= IDLE;
                   case (return_rotate) is
                      when "00" => mem_bus_din <= smallram_DataOut;
@@ -770,14 +764,14 @@ begin
                         end if;
                         state <= rotate;
                      else
-                        set_mem_bus_done('1'); 
+                        mem_bus_done <= '1'; 
                         state <= IDLE;
                      end if;
                   else
                      if (read_operation = '1') then
                         state <= READ_UNREADABLE;
                      else
-                        set_mem_bus_done('1'); 
+                        mem_bus_done <= '1'; 
                         state <= IDLE;
                      end if;
                   end if;
@@ -789,7 +783,7 @@ begin
                      rotate_data  <= bus_out_Dout;
                      state        <= ROTATE;
                   else
-                     set_mem_bus_done('1'); 
+                     mem_bus_done <= '1'; 
                      state <= IDLE;
                   end if;
                end if;
@@ -802,7 +796,7 @@ begin
                         rotate_data  <= sdram_read_data;
                         state        <= ROTATE;
                      elsif (acc_save = ACCESS_16BIT) then
-                        set_mem_bus_done('1'); 
+                        mem_bus_done <= '1'; 
                         state <= IDLE;
                         case (return_rotate) is
                            when "00" => mem_bus_din <= x"0000" & sdram_read_data(15 downto 0);
@@ -812,7 +806,7 @@ begin
                            when others => null;
                         end case;
                      else
-                        set_mem_bus_done('1'); 
+                        mem_bus_done <= '1'; 
                         state <= IDLE;
                         case (return_rotate) is
                            when "00" => mem_bus_din <= sdram_read_data;
@@ -823,7 +817,7 @@ begin
                         end case;
                      end if;
                   else
-                     set_mem_bus_done('1'); 
+                     mem_bus_done <= '1'; 
                      state <= IDLE;
                   end if;
                end if;
@@ -834,7 +828,7 @@ begin
                      rotate_data  <= cache_read_data;
                      state        <= ROTATE;
                   elsif (acc_save = ACCESS_16BIT) then
-                     set_mem_bus_done('1'); 
+                     mem_bus_done <= '1'; 
                      state <= IDLE;
                      case (return_rotate) is
                         when "00" => mem_bus_din <= x"0000" & cache_read_data(15 downto 0);
@@ -844,7 +838,7 @@ begin
                         when others => null;
                      end case;
                   else
-                     set_mem_bus_done('1'); 
+                     mem_bus_done <= '1'; 
                      state <= IDLE;
                      case (return_rotate) is
                         when "00" => mem_bus_din <= cache_read_data;
@@ -895,13 +889,13 @@ begin
                      when others => null;
                   end case;
                end if;
-               set_mem_bus_done('1'); 
+               mem_bus_done <= '1'; 
                mem_bus_unread <= unread_next;
                state <= IDLE;
                
             when READ_GPIO =>
                if (GPIO_done = '1') then
-                  set_mem_bus_done('1'); 
+                  mem_bus_done <= '1'; 
                   mem_bus_din    <= x"0000000" & GPIO_Din;
                   state <= IDLE;
                end if;
@@ -987,7 +981,7 @@ begin
                   end case;
                   state <= WAIT_GBBUS;
                else
-                  set_mem_bus_done('1'); 
+                  mem_bus_done <= '1'; 
                   state <= IDLE;
                end if;
             
@@ -1089,7 +1083,7 @@ begin
             when VRAMWAITWRITE =>
                if (vram_blocked = '0') then
                   state        <= IDLE;
-                  set_mem_bus_done('1');
+                  mem_bus_done <= '1';
                else
                   vram_cycle <= '1';
                end if;
@@ -1164,7 +1158,7 @@ begin
             when EEPROMWRITE => 
                if (dma_eepromcount = 0) then
                   state        <= IDLE;
-                  set_mem_bus_done('1');
+                  mem_bus_done <= '1';
                else
                   case (eepromMode) is
                      when EEPROM_IDLE =>
@@ -1173,11 +1167,11 @@ begin
                         eepromBuffer <= "0000000" & rotate_writedata(0);
                         eepromMode   <= EEPROM_READADDRESS;
                         state        <= IDLE;
-                        set_mem_bus_done('1');
+                        mem_bus_done <= '1';
  
                      when EEPROM_READADDRESS =>
                         state        <= IDLE;
-                        set_mem_bus_done('1');
+                        mem_bus_done <= '1';
                         eepromBuffer <= eepromBuffer(6 downto 0) & rotate_writedata(0);
                         eepromBits   <= eepromBits + 1;
                         if (eepromBits(2 downto 0) = "111") then
@@ -1218,7 +1212,7 @@ begin
                         -- should we reset here?
                         eepromMode   <= EEPROM_IDLE;
                         state        <= IDLE;
-                        set_mem_bus_done('1');
+                        mem_bus_done <= '1';
                         
                      when EEPROM_WRITEDATA =>
                         eepromBuffer <= eepromBuffer(6 downto 0) & rotate_writedata(0);
@@ -1233,7 +1227,7 @@ begin
                            state        <= WAIT_PROCBUS;
                         else
                            state        <= IDLE;
-                           set_mem_bus_done('1');
+                           mem_bus_done <= '1';
                         end if;
                         
                         if (eepromBits = 16#40#) then
@@ -1320,7 +1314,7 @@ begin
             when FLASHWRITE =>
                -- only default, maybe overwritten
                state        <= IDLE;
-               set_mem_bus_done('1');
+               mem_bus_done <= '1';
             
                case (flashState) is
                   when FLASH_READ_ARRAY =>
@@ -1383,14 +1377,14 @@ begin
                         flash_savecount <= 4096;
                         flash_savedata  <= (others => '1');
                         state           <= FLASH_WRITEBLOCK;
-                        set_mem_bus_done('0');
+                        mem_bus_done <= '0';
                         flashReadState <= FLASH_ERASE_COMPLETE;
                      elsif (Dout_save(7 downto 0) = x"10") then -- CHIP ERASE
                         flash_saveaddr  <= std_logic_vector(to_unsigned(Softmap_GBA_FLASH_ADDR, busadr_bits));
                         flash_savecount <= 131072;
                         flash_savedata  <= (others => '1');
                         state           <= FLASH_WRITEBLOCK;
-                        set_mem_bus_done('0');
+                        mem_bus_done <= '0';
                         flashReadState <= FLASH_ERASE_COMPLETE;
                      else
                         flashState     <= FLASH_READ_ARRAY;
@@ -1413,7 +1407,7 @@ begin
                      flash_savecount <= 1;
                      flash_savedata  <= Dout_save(7 downto 0);
                      state           <= FLASH_WRITEBLOCK;
-                     set_mem_bus_done('0');
+                     mem_bus_done <= '0';
                      flashState      <= FLASH_READ_ARRAY;
                      flashReadState  <= FLASH_READ_ARRAY;
                      
@@ -1442,7 +1436,7 @@ begin
                if (bus_out_done = '1') then
                   if (flash_savecount = 0) then
                      state        <= IDLE;
-                     set_mem_bus_done('1');
+                     mem_bus_done <= '1';
                   else
                      state <= FLASH_WRITEBLOCK;
                   end if;
