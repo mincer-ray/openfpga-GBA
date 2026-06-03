@@ -480,6 +480,7 @@ architecture arch of gba_cpu is
    signal mul_op2           : unsigned(31 downto 0);
    signal mul_opaddlow      : unsigned(31 downto 0);
    signal mul_opaddhigh     : unsigned(31 downto 0);
+   signal mul_product       : unsigned(63 downto 0);
    signal mul_result        : unsigned(63 downto 0);
    signal mul_low_carry     : unsigned(0 downto 0) := "0";
    signal mul_wait          : integer range 0 to 3;
@@ -2487,10 +2488,11 @@ begin
                      
                      when MULCALCMUL =>
                         if (execute_mul_long = '0' or execute_mul_signed = '0') then
-                           mul_result <= mul_op1 * mul_op2;
+                           mul_product <= mul_op1 * mul_op2;
                         else
-                           mul_result <= unsigned(signed(mul_op1) * signed(mul_op2));
+                           mul_product <= unsigned(signed(mul_op1) * signed(mul_op2));
                         end if;
+                        mul_result <= mul_product;
                         if (mul_wait > 0) then
                            mul_wait <= mul_wait - 1;
                         else
