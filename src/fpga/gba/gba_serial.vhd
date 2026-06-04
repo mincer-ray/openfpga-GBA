@@ -648,14 +648,12 @@ begin
                            int_clk_phase  <= '0';
 
                            if (bitcount = transfer_bits) then
-                              -- Normal-mode serial IRQs stay masked because
-                              -- Pocket software probes this path during normal
-                              -- gameplay often enough to cause audible
-                              -- regressions, whereas multiplayer IRQs are
-                              -- still required for real link-cable support.
-                              SIO_start    <= '0';
+                              SIO_start     <= '0';
                               received_data <= shift_reg(30 downto 0) & serial_data_in;
                               serial_clk_out <= '1';
+                              if (REG_SIOCNT(14) = '1') then
+                                 IRP_Serial <= '1';
+                              end if;
                            else
                               bitcount <= bitcount + 1;
                            end if;
@@ -675,6 +673,9 @@ begin
                      if (bitcount = transfer_bits) then
                         SIO_start     <= '0';
                         received_data <= shift_reg(30 downto 0) & serial_data_in;
+                        if (REG_SIOCNT(14) = '1') then
+                           IRP_Serial <= '1';
+                        end if;
                      else
                         bitcount <= bitcount + 1;
                      end if;
@@ -725,37 +726,25 @@ begin
                   REG_SIODATA32_READBACK <= (others => '1');
 
                elsif (REG_RCNT(15) = '0' and REG_SIOCNT(13) = '0') then
-                  -- Normal mode transfer start. In master mode, don't launch a
-                  -- transfer unless SI already shows a ready peer. With no
-                  -- cable attached the line is HIGH/idle, and treating that as
-                  -- an immediate transfer completion creates spurious link IRQs.
-                  if (REG_SIOCNT(0) = '0' or si_sync(1) = '0') then
-                     SIO_start     <= '1';
-                     bitcount      <= 0;
-                     cycles        <= (others => '0');
-                     int_clk_phase <= '0';
+                  -- Normal mode transfer start. Even with no peer attached,
+                  -- hardware clocks the transfer and may raise the completion IRQ.
+                  SIO_start     <= '1';
+                  bitcount      <= 0;
+                  cycles        <= (others => '0');
+                  int_clk_phase <= '0';
 
-                     if (REG_SIOCNT(12) = '1') then
-                        transfer_bits <= 31;
-                        shift_reg     <= REG_SIODATA32_READBACK;
-                     else
-                        transfer_bits <= 7;
-                        shift_reg     <= x"000000" & REG_SIODATA8(7 downto 0);
-                     end if;
-
-                     if (REG_SIOCNT(12) = '1') then
-                        serial_data_out <= REG_SIODATA32_READBACK(31);
-                     else
-                        serial_data_out <= REG_SIODATA8(7);
-                     end if;
+                  if (REG_SIOCNT(12) = '1') then
+                     transfer_bits <= 31;
+                     shift_reg     <= REG_SIODATA32_READBACK;
                   else
-                     SIO_start      <= '0';
-                     bitcount       <= 0;
-                     cycles         <= (others => '0');
-                     int_clk_phase  <= '0';
-                     received_data  <= (others => '1');
-                     serial_clk_out <= '1';
-                     serial_data_out <= REG_SIOCNT(3);
+                     transfer_bits <= 7;
+                     shift_reg     <= x"000000" & REG_SIODATA8(7 downto 0);
+                  end if;
+
+                  if (REG_SIOCNT(12) = '1') then
+                     serial_data_out <= REG_SIODATA32_READBACK(31);
+                  else
+                     serial_data_out <= REG_SIODATA8(7);
                   end if;
                end if;
             end if;
