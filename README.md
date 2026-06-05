@@ -54,6 +54,8 @@ The core should be available on pocket manager apps, or you can install manually
 
 - **Fast forward creates visible screen tearing** — Nothing i can do about this for the time being. Would need a frame buffer.
 
+- **64MB Video carts do not work** you cant watch shrek, shrek 2, or shark tale =(
+
 ## Building from Source
 
 Should be very easy
