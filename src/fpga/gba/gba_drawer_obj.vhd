@@ -362,8 +362,14 @@ begin
       variable posy           : integer range -256 to 255;
       variable fieldX         : integer range 8 to 128;
       variable fieldY         : integer range 8 to 128;
-      variable xxx            : integer range 0 to 63;
-      variable yyy            : integer range 0 to 63;
+      variable realX_s        : signed(23 downto 0);
+      variable realY_s        : signed(23 downto 0);
+      variable aff_x_pix      : unsigned(5 downto 0);
+      variable aff_y_pix      : unsigned(5 downto 0);
+      variable aff_x_frac     : unsigned(2 downto 0);
+      variable aff_y_frac     : unsigned(2 downto 0);
+      variable aff_x_tile     : unsigned(2 downto 0);
+      variable aff_y_tile     : unsigned(2 downto 0);
       variable pixeladdr_calc : integer;
    begin
       if rising_edge(clk100) then
@@ -573,29 +579,72 @@ begin
                end if;
                
                if (Pixel_data0(OAM_AFFINE) = '1') then
-                  if (realX < 0 or (realX / RESMULTACCDIV) >= sizeX or realY < 0 or (realY / RESMULTACCDIV) >= sizeY) then
+                  -- Pocket builds this drawer with RESMULT=1, so affine coordinates are
+                  -- 8.8 fixed-point values. Use slices instead of divide/mod/multiply
+                  -- in the per-pixel address path.
+                  if (realX < 0 or realX >= (sizeX * 256) or realY < 0 or realY >= (sizeY * 256)) then
                      skippixel <= '1';
                   end if;
                
                   -- synthesis translate_off
-                  if (realX >= 0 and (realX / RESMULTACCDIV) < sizeX and realY >= 0 and (realY / RESMULTACCDIV) < sizeY) then
+                  if (realX >= 0 and realX < (sizeX * 256) and realY >= 0 and realY < (sizeY * 256)) then
                   -- synthesis translate_on
                
-                     xxx := realX / RESMULTACCDIV;
-                     yyy := realY / RESMULTACCDIV;
-                     if (xxx mod 2 = 1) then second_pix <= '1'; else second_pix <= '0'; end if;
+                     realX_s    := to_signed(realX, 24);
+                     realY_s    := to_signed(realY, 24);
+                     aff_x_pix  := unsigned(realX_s(13 downto 8));
+                     aff_y_pix  := unsigned(realY_s(13 downto 8));
+                     aff_x_frac := aff_x_pix(2 downto 0);
+                     aff_y_frac := aff_y_pix(2 downto 0);
+                     aff_x_tile := aff_x_pix(5 downto 3);
+                     aff_y_tile := aff_y_pix(5 downto 3);
+                     second_pix <= aff_x_frac(0);
                      
-                     pixeladdr_x_aff0 <= to_unsigned(((yyy mod 8) * x_size), 15);
-                     pixeladdr_x_aff1 <= to_unsigned(((yyy / 8) * sizemult), 15);
+                     pixeladdr_x_aff0 <= (others => '0');
+                     pixeladdr_x_aff1 <= (others => '0');
+                     pixeladdr_x_aff2 <= (others => '0');
+                     pixeladdr_x_aff3 <= (others => '0');
+                     pixeladdr_x_aff4 <= (others => '0');
+                     pixeladdr_x_aff5 <= (others => '0');
 
-                     pixeladdr_x_aff2 <= to_unsigned(((yyy mod 8) * x_size), 15);
-                     pixeladdr_x_aff3 <= to_unsigned(((yyy / 8) * 1024), 15);
-
-                     pixeladdr_x_aff4 <= to_unsigned(((xxx mod 8) / x_div), 15);
+                     -- (y mod 8) * bytes_per_tile_row. 4bpp rows are 4 bytes,
+                     -- 8bpp rows are 8 bytes.
                      if (Pixel_data0(OAM_HICOLOR) = '0') then
-                        pixeladdr_x_aff5 <= to_unsigned(((xxx / 8) * 32), 15);
+                        pixeladdr_x_aff0(4 downto 2) <= aff_y_frac;
+                        pixeladdr_x_aff2(4 downto 2) <= aff_y_frac;
                      else
-                        pixeladdr_x_aff5 <= to_unsigned(((xxx / 8) * 64), 15);
+                        pixeladdr_x_aff0(5 downto 3) <= aff_y_frac;
+                        pixeladdr_x_aff2(5 downto 3) <= aff_y_frac;
+                     end if;
+
+                     -- (y / 8) * sizemult for 1D mapping. sizemult is
+                     -- (sizeX / 8) * 32 for 4bpp and *64 for 8bpp.
+                     if (Pixel_data0(OAM_HICOLOR) = '0') then
+                        case sizeX is
+                           when 8      => pixeladdr_x_aff1( 7 downto 5) <= aff_y_tile;
+                           when 16     => pixeladdr_x_aff1( 8 downto 6) <= aff_y_tile;
+                           when 32     => pixeladdr_x_aff1( 9 downto 7) <= aff_y_tile;
+                           when others => pixeladdr_x_aff1(10 downto 8) <= aff_y_tile;
+                        end case;
+                     else
+                        case sizeX is
+                           when 8      => pixeladdr_x_aff1( 8 downto 6) <= aff_y_tile;
+                           when 16     => pixeladdr_x_aff1( 9 downto 7) <= aff_y_tile;
+                           when 32     => pixeladdr_x_aff1(10 downto 8) <= aff_y_tile;
+                           when others => pixeladdr_x_aff1(11 downto 9) <= aff_y_tile;
+                        end case;
+                     end if;
+
+                     -- (y / 8) * 1024 for 2D mapping.
+                     pixeladdr_x_aff3(12 downto 10) <= aff_y_tile;
+
+                     -- (x mod 8) / pixels_per_byte and (x / 8) * tile_bytes.
+                     if (Pixel_data0(OAM_HICOLOR) = '0') then
+                        pixeladdr_x_aff4(1 downto 0) <= aff_x_frac(2 downto 1);
+                        pixeladdr_x_aff5(7 downto 5) <= aff_x_tile;
+                     else
+                        pixeladdr_x_aff4(2 downto 0) <= aff_x_frac;
+                        pixeladdr_x_aff5(8 downto 6) <= aff_x_tile;
                      end if;
                      
                   -- synthesis translate_off
@@ -806,7 +855,6 @@ begin
 
 
 end architecture;
-
 
 
 

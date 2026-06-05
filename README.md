@@ -10,34 +10,34 @@ LLM assisted port of [MiSTer GBA core](https://github.com/MiSTer-devel/GBA_MiSTe
 - **Filters**
 - **Save States**
 - **Fast Forward (Bound to Y button)**
+- **Button Turbo (Bound to X button)**
 - **RTC**
-- **FORCE RTC** — Manually enables RTC for ROMs that aren't in the database. This is useful for ROM hacks that add RTC support to games that don't normally use it (like a certain "unbound" hack). Make sure to enable this on first load of the hack, ideally as soon as possible during the bios display to avoid any issues with initializing the save. **USE WITH CAUTION:** enabling this on a game that doesn't actually use RTC can cause crashes or glitches.
-### **⚠️WARNING: Forced RTC setting persists across games! Remember to turn it off before loading a game that doesn't need it⚠️**
+- **Link Cable (Partial)** - 2p Multiplayer
 
 ##  Currently Not Included
 
-- **Link Cable** - working on it
-- **Gyroscope**
-- **Solar Sensor**
-- **Cheats**
-- **Rewind**
-- **Color correction outside default pocket filters**
-
-The original MiSTer core was built for an FPGA chip roughly twice the size of the one inside the Analogue Pocket. Some extras had to go to make it all fit. I tried to prioritize things that could be fixed with romhacks, for example there is a solar patch that fixes this issues without the core needing to do anything.
+- **Link Cable** - normal serial modes/accessories, 3p/4p Multiplayer, GCN link, GBA wireless, Single Pak download
 
 ## RTC and Save Compatibility
 
 When a game uses RTC (either detected automatically or forced on), the core appends RTC data to the end of the save file. This makes the save file larger than a standard GBA save. If you then try to load that save on a GBA core that doesn't support RTC, it will fail with an error because the save file size doesn't match what the core expects. To use the save on a non-RTC core, you would need to trim the extra RTC bytes from the end of the file to restore it to its original size.
 
-The following tools can strip RTC data from a save file:
+The following tools might be able to help you but I have not tested them:
 - [mGBA](https://mgba.io/) — The built-in Save Converter tool (Tools → Save Converter) can export saves with RTC data stripped. Requires mGBA v0.10.3 or later.
 - [save-file-converter](https://github.com/euan-forrester/save-file-converter) — A web-based tool that can convert and resize save files across many retro formats.
 
+## **FORCE RTC**
+At the moment there only seems to be 1 romhack that needs this feature. If you are trying to play Unbound keep reading, otherwise PLEASE ignore this feature.
+
+— Manually enables RTC for ROMs that aren't in the database. This is useful for ROM hacks that add RTC support to games that don't normally use it. Make sure to enable this on first load of the hack, ideally as soon as possible during the bios display to avoid any issues with initializing the save. **USE WITH CAUTION:** enabling this on a game that doesn't actually use RTC can cause crashes or glitches.
+### **⚠️WARNING: Forced RTC setting persists across games! Remember to turn it off before loading a game that doesn't need it⚠️**
+### **⚠️WARNING: Do not enable this setting unless you are playing a romhack that needs it⚠️**
+
 ## Accuracy
 
-This core more or less replicates the current accuracy of the MiSTer GBA core. The features that were cut to fit the smaller FPGA were convenience features, not accuracy-related logic. It scores similarly to the MiSTer core in the mGBA test suite. If you encounter a game that works on MiSTer but not here, please open an issue.
+This core more or less replicates the current accuracy of the MiSTer GBA core master branch. The features that were cut to fit the smaller FPGA were convenience features, not accuracy-related logic. It scores similarly to the MiSTer core in the mGBA test suite. If you encounter a game that works on MiSTer but not here, please open an issue.
 
-note: MiSTer core has an accuracy branch. A few of those changes have made it into this core but the bulk is still wip on a different branch and i have no ETA for that making it fully into this core.
+Note: MiSTer core has an accuracy branch! A few of those changes have made it into this port but due to it not supporting fast forward (never coming due to technical limitations) or link port (probably coming) I've kinda stalled on that branch for the time being. I'm considering maybe splitting into 2 cores, but probably we just need to wait for the MiSTer devs to finish before really committing to that plan. The regular MiSTer core works well enough for now.
 
 ## Installation
 
@@ -51,6 +51,10 @@ The core should be available on pocket manager apps, or you can install manually
 ## Known Issues
 
 - **Fast forward speed varies by game** — Games that make heavy use of the GBA's slower external RAM will not fast-forward as quickly as games that primarily use internal RAM. This is most noticeable with the Classic NES Series titles.
+
+- **Fast forward creates visible screen tearing** — Nothing i can do about this for the time being. Would need a frame buffer.
+
+- **64MB Video carts do not work** you cant watch shrek, shrek 2, or shark tale =(
 
 ## Building from Source
 

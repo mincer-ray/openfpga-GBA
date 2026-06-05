@@ -60,6 +60,28 @@ set_output_delay -clock sdram_clk -min -0.8 \
 set_input_delay -clock sdram_clk -max 6.0 [get_ports {dram_dq[*]}]
 set_input_delay -clock sdram_clk -min 2.5 [get_ports {dram_dq[*]}]
 
+# Non-SDRAM top-level I/O timing coverage:
+# These APF/platform interfaces are not signed off with external setup/hold
+# delays here. They are either protocol/wait-state timed, source-synchronous
+# to fixed platform wiring, or handled by the APF bridge logic. Marking them
+# false path keeps TimeQuest's "fully constrained" check focused on the paths
+# this core actually constrains instead of reporting intentionally unmanaged
+# board-level I/O.
+set_false_path -from [get_ports { \
+  bridge_1wire bridge_spimiso bridge_spimosi bridge_spiss \
+  cram0_dq[*] \
+  port_tran_sck port_tran_sd port_tran_si \
+}]
+
+set_false_path -to [get_ports { \
+  bridge_1wire bridge_spimiso bridge_spimosi \
+  cram0_a[*] cram0_adv_n cram0_ce0_n cram0_ce1_n cram0_clk cram0_cre \
+  cram0_dq[*] cram0_lb_n cram0_oe_n cram0_ub_n cram0_we_n \
+  port_tran_sck port_tran_sck_dir port_tran_sd port_tran_sd_dir port_tran_so \
+  scal_auddac scal_audlrck scal_audmclk scal_clk scal_de scal_hs scal_skip \
+  scal_vid[*] scal_vs \
+}]
+
 # Multicycle path for SDRAM read capture:
 # With ~248° phase (6831 ps), the sdram_clk edge is ~6.8 ns after sys_clk.
 # The next sys_clk edge is only ~3.1 ns later (9934 - 6831 ps), which is
