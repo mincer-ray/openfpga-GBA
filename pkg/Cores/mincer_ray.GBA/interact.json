@@ -59,7 +59,7 @@
         ]
       },
       {
-        "name": "Force RTC (Dangerous)",
+        "name": "Force Quirk (Dangerous)",
         "id": 30,
         "type": "list",
         "enabled": true,

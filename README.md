@@ -26,7 +26,7 @@ The following tools might be able to help you but I have not tested them:
 - [mGBA](https://mgba.io/) — The built-in Save Converter tool (Tools → Save Converter) can export saves with RTC data stripped. Requires mGBA v0.10.3 or later.
 - [save-file-converter](https://github.com/euan-forrester/save-file-converter) — A web-based tool that can convert and resize save files across many retro formats.
 
-## **FORCE RTC**
+## **FORCE QUIRK**
 At the moment there only seems to be 1 romhack that needs this feature. If you are trying to play Unbound keep reading, otherwise PLEASE ignore this feature.
 
 — Manually enables RTC for ROMs that aren't in the database. This is useful for ROM hacks that add RTC support to games that don't normally use it. Make sure to enable this on first load of the hack, ideally as soon as possible during the bios display to avoid any issues with initializing the save. **USE WITH CAUTION:** enabling this on a game that doesn't actually use RTC can cause crashes or glitches.
