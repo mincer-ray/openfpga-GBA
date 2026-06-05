@@ -286,9 +286,9 @@ begin
                                 (multi_sending = '1' or multi_send_pending = '1')))
                      else '1';
    multi_endlimit <= multi_speed * 18;
-   multi_sd_drive_state <= '1' when multi_mode = '1' and
-                                    (multi_sending = '1' or
-                                     multi_phase = MULTI_PHASE_IDLE) else
+   -- SD is a shared line: release it while idle/receiving and let the
+   -- board-level pull-up provide the ready HIGH level.
+   multi_sd_drive_state <= '1' when multi_mode = '1' and multi_sending = '1' else
                            '0';
    -- Once the child has begun transmitting its reply, trust the parent's SC
    -- release as the authoritative end-of-transfer signal. Real hardware can
@@ -306,8 +306,9 @@ begin
    sc_rise  <= '1' when sc_sync(2) = '0' and sc_sync(1) = '1' else '0';
    sc_fall  <= '1' when sc_sync(2) = '1' and sc_sync(1) = '0' else '0';
 
-   -- Multi-player SD output
+   -- Multi-player SD output and direction
    serial_sd_out <= multi_sd_out_r;
+   serial_sd_dir <= multi_sd_drive_state;
 
    process (clk100)
    begin
@@ -389,11 +390,8 @@ begin
             -- SC direction: parent drives, child reads
             serial_sc_dir <= multi_is_parent and multi_role_valid;
 
-            -- In multiplayer mode SD is HIGH during inactivity when the link is
-            -- ready, then released except while this unit is actively sending
-            -- its own UART slot. Driving HIGH while idle is what lets a real
-            -- parent detect "all GBAs ready" and begin the transfer.
-            serial_sd_dir <= multi_sd_drive_state;
+            -- In multiplayer mode SD is released while idle/receiving and
+            -- driven only while this unit is actively sending its UART slot.
 
             -- On real hardware the slave's busy state is driven by the
             -- incoming SC line, not by a local start-bit write.
@@ -615,7 +613,6 @@ begin
             -- Multi-player outputs idle
             serial_sc_out  <= '1';
             serial_sc_dir  <= '0';
-            serial_sd_dir  <= '0';
             multi_sd_out_r <= '1';
             multi_phase    <= MULTI_PHASE_IDLE;
             multi_rx_first <= '0';
