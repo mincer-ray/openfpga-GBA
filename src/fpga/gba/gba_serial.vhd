@@ -17,12 +17,13 @@ entity gba_serial is
 
       IRP_Serial        : out std_logic := '0';
 
-      -- Normal mode I/O (SO/SI/SCK pins)
+      -- Normal-mode pins. Normal serial is intentionally exposed as
+      -- disconnected/idle; 2-player multi-player is the supported link mode.
       serial_data_out   : out std_logic := '1';  -- SO pin
       serial_data_in    : in  std_logic;          -- SI pin
-      serial_clk_out    : out std_logic := '1';   -- SCK output (when master)
-      serial_clk_in     : in  std_logic;          -- SCK input (when slave)
-      serial_int_clock  : out std_logic := '0';   -- 1 = internal clock (SCK is output)
+      serial_clk_out    : out std_logic := '1';   -- SCK idle output
+      serial_clk_in     : in  std_logic;          -- SCK input
+      serial_int_clock  : out std_logic := '0';   -- SCK output enable
 
       -- Multi-player mode I/O (SD/SC pins)
       serial_sd_out     : out std_logic := '1';   -- SD data output (UART)
@@ -214,10 +215,9 @@ begin
    -- period. A brief SI glitch on the slave side should not be enough to flip
    -- the whole session into the parent path.
    multi_parent_observed <= '1' when si_sync = "000" and sc_sync = "111" and sd_sync = "111" else '0';
-   -- Preserve the old stubbed "no cable" behavior while the link port is idle
-   -- and we still have no evidence of a peer. That prevents games from
-   -- mistaking an unplugged port for a ready-but-idle link session.
-   normal_disconnected_idle <= '1' when multi_mode = '0' and SIO_start = '0' and si_sync(1) = '1' else '0';
+   -- Normal serial modes are intentionally unsupported: report no cable and
+   -- keep the physical normal-mode pins idle. Multi-player mode remains active.
+   normal_disconnected_idle <= '1' when multi_mode = '0' else '0';
    multi_disconnected_idle  <= '1' when multi_mode = '1' and
                                         multi_phase = MULTI_PHASE_IDLE and
                                         multi_role_valid = '0' and
@@ -240,7 +240,7 @@ begin
       when multi_mode = '1' else
       REG_SIOCNT(15 downto 8) & '0' & '1' & REG_SIOCNT(5 downto 0)
       when normal_disconnected_idle = '1' else
-      -- Normal: [15:8]=reg, [7]=start, [6]=error(1=no cable), [5:3]=reg, [2]=SI pin, [1:0]=reg
+      -- Legacy normal-mode readback path retained below the unsupported/no-cable mask.
       REG_SIOCNT(15 downto 8) & SIO_start & REG_SIOCNT(6 downto 3) & serial_data_in & REG_SIOCNT(1 downto 0);
 
    -- RCNT readback: lower bits reflect pin states in multi-player mode
@@ -297,8 +297,8 @@ begin
    multi_child_finish_ok <= '1' when multi_phase = MULTI_PHASE_CHILD_WAIT_PARENT_END else
                             '1' when multi_phase = MULTI_PHASE_CHILD_TX else
                             '0';
-   -- Normal mode: expose internal clock select for SCK direction
-   serial_int_clock <= REG_SIOCNT(0) when multi_mode = '0' else '0';
+   -- Normal serial is unsupported, so never drive SCK as a normal-mode clock.
+   serial_int_clock <= '0';
 
    -- Normal mode external clock edge detect
    sck_rise <= '1' when sck_sync(2) = '0' and sck_sync(1) = '1' else '0';
@@ -608,7 +608,8 @@ begin
          else
             -- ============================================================
             -- NORMAL MODE (SIOCNT[13]=0)
-            -- SPI-style clocked serial, 8/32-bit, 2 devices
+            -- Unsupported: retain register/state behavior but expose the port
+            -- as disconnected and keep SO/SCK idle.
             -- ============================================================
 
             -- Multi-player outputs idle
@@ -686,6 +687,9 @@ begin
                serial_data_out <= REG_SIOCNT(3);
                serial_clk_out  <= '1';
             end if;
+
+            serial_data_out <= '1';
+            serial_clk_out  <= '1';
 
          end if;  -- multi_mode / normal mode
 

@@ -247,17 +247,17 @@ assign cart_tran_pin31 = 1'bz;
 assign cart_tran_pin31_dir = 1'b0;
 
 // ---- Link Cable ----
-// Normal mode: SO=output, SI=input, SCK=bidirectional (master/slave)
-// Multi-player mode: SD=half-duplex UART, SC=handshake, SO/SI=terminal detect
-wire serial_data_out;   // SO pin (Normal mode)
-wire serial_clk_out;    // SCK output (Normal mode master)
-wire serial_int_clock;  // Normal mode SCK direction
-wire serial_sd_out;     // SD data output (Multi-player UART)
-wire serial_sd_dir;     // SD direction (Multi-player)
-wire serial_sc_out;     // SC handshake output (Multi-player)
-wire serial_sc_dir;     // SC direction (Multi-player)
+// Supported: 2-player multi-player mode on SD/SC with SO/SI terminal detect.
+// Unsupported normal serial modes remain stubbed inside gba_serial.
+wire serial_data_out;   // SO terminal-chain output
+wire serial_clk_out;    // SC/SCK idle level
+wire serial_int_clock;  // kept low while normal serial is unsupported
+wire serial_sd_out;     // SD data output
+wire serial_sd_dir;     // SD direction
+wire serial_sc_out;     // SC handshake output
+wire serial_sc_dir;     // SC direction
 
-// SO pin: always output
+// SO pin: terminal-chain output for multi-player mode
 assign port_tran_so     = serial_data_out;
 assign port_tran_so_dir = 1'b1;
 
@@ -265,12 +265,12 @@ assign port_tran_so_dir = 1'b1;
 assign port_tran_si     = 1'bz;
 assign port_tran_si_dir = 1'b0;
 
-// SCK/SC pin: driven by Normal mode (serial_int_clock) OR Multi-player (serial_sc_dir)
+// SCK/SC pin: driven only by supported multi-player handshaking
 assign port_tran_sck     = serial_sc_dir  ? serial_sc_out  :
                            serial_int_clock ? serial_clk_out : 1'bz;
 assign port_tran_sck_dir = serial_sc_dir | serial_int_clock;
 
-// SD pin: driven by Multi-player mode UART, unused (input) in Normal mode
+// SD pin: driven by multi-player mode UART
 assign port_tran_sd     = serial_sd_dir ? serial_sd_out : 1'bz;
 assign port_tran_sd_dir = serial_sd_dir;
 
@@ -1641,7 +1641,7 @@ gba_top #(
     .KeyR                ( key_r ),
     .KeyL                ( key_l ),
     // AnalogTiltX/Y and Rumble removed (solar/gyro/tilt/rumble stripped)
-    // Link cable — Normal mode
+    // Link cable pins; normal serial is stubbed, 2-player multi-player is supported
     .serial_data_out     ( serial_data_out ),
     .serial_data_in      ( port_tran_si ),
     .serial_clk_out      ( serial_clk_out ),

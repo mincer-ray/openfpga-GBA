@@ -16,7 +16,7 @@ LLM assisted port of [MiSTer GBA core](https://github.com/MiSTer-devel/GBA_MiSTe
 
 ##  Currently Not Included
 
-- **Link Cable** - 3p/4p Multiplayer, GCN link, GBA wireless, Single Pak download
+- **Link Cable** - normal serial modes/accessories, 3p/4p Multiplayer, GCN link, GBA wireless, Single Pak download
 
 ## RTC and Save Compatibility
 
