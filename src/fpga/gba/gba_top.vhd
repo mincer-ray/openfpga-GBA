@@ -120,6 +120,7 @@ entity gba_top is
       pixel_out_addr        : buffer integer range 0 to 38399;       -- address for framebuffer 
       pixel_out_data        : buffer std_logic_vector(17 downto 0);  -- RGB data for framebuffer 
       pixel_out_we          : buffer std_logic;                      -- new pixel for framebuffer
+      frame_complete        : out    std_logic := '0';               -- fully drawn frame completed
       -- sound                             
       sound_out_left        : out    std_logic_vector(15 downto 0) := (others => '0');
       sound_out_right       : out    std_logic_vector(15 downto 0) := (others => '0');
@@ -135,7 +136,7 @@ end entity;
 architecture arch of gba_top is
 
    constant SPEEDDIV    : integer := 6;
-   constant DEBUG_NOCPU : std_logic := '0';  
+   constant DEBUG_NOCPU : std_logic := '0';
 
    -- debug
    signal debug_bus_active : std_logic := '0';
@@ -210,7 +211,8 @@ architecture arch of gba_top is
    signal VRAM_Hi_be           : std_logic_vector(3 downto 0);
    signal vram_blocked         : std_logic;
    signal vram_cycle           : std_logic;
-                               
+   signal gpu_render_stall     : std_logic := '0';
+
    signal OAMRAM_PROC_addr     : integer range 0 to 255;
    signal OAMRAM_PROC_datain   : std_logic_vector(31 downto 0);
    signal OAMRAM_PROC_dataout  : std_logic_vector(31 downto 0);
@@ -267,6 +269,7 @@ architecture arch of gba_top is
    
    signal hblank_trigger : std_logic;
    signal vblank_trigger : std_logic;
+   signal frame_complete_int : std_logic := '0';
    signal videodma_start : std_logic;
    signal videodma_stop  : std_logic;
    
@@ -738,9 +741,11 @@ begin
       pixel_out_y          => pixel_out_y,
       pixel_out_addr       => pixel_out_addr,
       pixel_out_data       => pixel_out_data,
-      pixel_out_we         => pixel_out_we,  
-      
-      new_cycles           => new_cycles,      
+      pixel_out_we         => pixel_out_we,
+      frame_complete       => frame_complete_int,
+      render_stall         => gpu_render_stall,
+
+      new_cycles           => new_cycles,
       new_cycles_valid     => new_cycles_valid,
               
       IRP_HBlank           => IRP_HBlank,
@@ -780,6 +785,8 @@ begin
    
       DISPSTAT_debug       => DISPSTAT_debug       
    );
+
+   frame_complete <= frame_complete_int;
    
    igba_timer : entity work.gba_timer
    generic map
@@ -967,9 +974,10 @@ begin
          else
             cycles_ahead <= 0;
          end if;
-         
+
          gba_step <= '0';
          if (DEBUG_NOCPU = '0' and sleep_savestate = '0' and sleep_external = '0' and
+            gpu_render_stall = '0' and
             (GBA_lockspeed = '0' or GBA_cputurbo = '1' or cycles_ahead < unsigned(CyclePrecalc))) then
             gba_step <= '1';
          end if;

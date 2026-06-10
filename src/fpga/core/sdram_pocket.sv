@@ -16,6 +16,8 @@
 // Address map:
 //   Ch1 ROM:   DWORD addr 0x000000 - 0x7FFFFF (up to 32 MB)
 //   Ch2 EWRAM: DWORD addr 0x800000 - 0x80FFFF (256 KB)
+//   Video framebuffer slots:
+//              WORD addr 0x1C00000 - 0x1C257FF (4 * 240 * 160 RGB565)
 //
 // Copyright (c) 2015-2019 Sorgelig (original 3-channel design)
 // Modified 2026 for Analogue Pocket
@@ -40,6 +42,16 @@ module sdram_pocket (
     input  wire [24:0] wr_addr,      // WORD address (25-bit -> 64 MB byte addressable)
     input  wire [15:0] wr_data,      // 16-bit write data
 
+    // Low-priority video frame-slot reads/writes. Core ROM/EWRAM traffic has priority.
+    input  wire        video_rd_req,  // Burst-4 read request pulse
+    input  wire [24:0] video_rd_addr, // WORD address, expected 4-word aligned
+    output reg  [63:0] video_rd_data, // Four RGB565 pixels
+    output reg         video_rd_ready,
+
+    input  wire        video_wr_req,  // Write request pulse
+    input  wire [24:0] video_wr_addr, // WORD address
+    input  wire [15:0] video_wr_data, // RGB565 write data
+
     // Ch2: EWRAM read/write (active during gameplay)
     input  wire        ch2_rd,       // Read request pulse
     input  wire        ch2_wr,       // Write request pulse
@@ -53,6 +65,8 @@ module sdram_pocket (
 
     // Write pending — high when a ch1 write is latched but not yet serviced
     output wire        wr_pending,
+    output wire        video_rd_pending,
+    output wire        video_wr_pending,
 
     // Physical SDRAM pins
     output wire [12:0] dram_a,
@@ -136,6 +150,8 @@ reg [13:0] refresh_count = STARTUP_REFRESH_MAX - STARTUP_CYCLES;
 
 assign sdram_ready = (state != STATE_STARTUP);
 assign wr_pending  = wr_rq;
+assign video_rd_pending = video_rd_rq;
+assign video_wr_pending = video_wr_rq;
 
 // ============================================================
 // Internal Registers
@@ -145,12 +161,14 @@ reg        req_pending      = 0;
 reg        req_is_write     = 0;
 reg        req_is_ch2       = 0;  // Current request is ch2 (EWRAM)
 reg        req_is_ch2_write = 0;  // Current request is ch2 write
+reg        req_is_video_rd  = 0;  // Current request is video frame-slot read
 reg [24:0] req_addr         = 0;
 reg [15:0] req_wdata        = 0;
 
 localparam CAPTURE_DELAY = CAS_LATENCY + BURST_COUNT; // 2 + 4 = 6
 reg [CAPTURE_DELAY:0] data_ready_delay = 0;
 reg        capture_is_ch2   = 0;  // Read data should go to ch2_dout
+reg        capture_is_video = 0;  // Read data should go to video_rd_data
 reg [15:0] dq_reg           = 0;
 reg [12:0] cas_addr         = 0;
 
@@ -166,6 +184,13 @@ reg        ch2_wr_rq   = 0;
 reg [24:0] ch2_rq_addr = 0;
 reg [31:0] ch2_rq_din  = 0;
 
+// Video frame-slot request latches
+reg        video_rd_rq      = 0;
+reg [24:0] video_rd_rq_addr = 0;
+reg        video_wr_rq      = 0;
+reg [24:0] video_wr_rq_addr = 0;
+reg [15:0] video_wr_rq_data = 0;
+
 // ============================================================
 // Main State Machine
 // ============================================================
@@ -176,6 +201,7 @@ always @(posedge clk) begin
     command    <= CMD_NOP;
     rd_ready   <= 0;
     ch2_ready  <= 0;
+    video_rd_ready <= 0;
 
     refresh_count <= refresh_count + 1'd1;
 
@@ -183,15 +209,18 @@ always @(posedge clk) begin
 
     dq_reg <= dram_dq;
 
-    // Capture burst data — route to ch1 or ch2 based on capture_is_ch2
+    // Capture burst data — route to ch1, ch2, or video readback.
     // Burst-4 returns 4 words. Ch2 uses first 2 (one DWORD), ch1 uses all 4.
-    // capture_is_ch2 stays set through all 4 words to suppress spurious rd_ready.
+    // capture flags stay set through all 4 words to suppress spurious rd_ready.
     if (data_ready_delay[3]) begin
-        if (capture_is_ch2) ch2_dout[15:0]  <= dq_reg;
-        else                rd_data[15:0]   <= dq_reg;
+        if (capture_is_video) video_rd_data[15:0] <= dq_reg;
+        else if (capture_is_ch2) ch2_dout[15:0]  <= dq_reg;
+        else                     rd_data[15:0]   <= dq_reg;
     end
     if (data_ready_delay[2]) begin
-        if (capture_is_ch2) begin
+        if (capture_is_video) begin
+            video_rd_data[31:16] <= dq_reg;
+        end else if (capture_is_ch2) begin
             ch2_dout[31:16] <= dq_reg;
             ch2_ready       <= 1;
         end else begin
@@ -199,16 +228,22 @@ always @(posedge clk) begin
         end
     end
     if (data_ready_delay[1]) begin
-        if (!capture_is_ch2) begin
+        if (capture_is_video) begin
+            video_rd_data[47:32] <= dq_reg;
+        end else if (!capture_is_ch2) begin
             rd_data_second[15:0] <= dq_reg;
             rd_ready             <= 1;
         end
     end
     if (data_ready_delay[0]) begin
-        if (!capture_is_ch2) begin
+        if (capture_is_video) begin
+            video_rd_data[63:48] <= dq_reg;
+            video_rd_ready       <= 1;
+        end else if (!capture_is_ch2) begin
             rd_data_second[31:16] <= dq_reg;
         end
-        capture_is_ch2 <= 0; // Clear after all burst words processed
+        capture_is_ch2   <= 0;
+        capture_is_video <= 0;
     end
 
     // Sticky request latches (MiSTer pattern)
@@ -229,15 +264,25 @@ always @(posedge clk) begin
         ch2_rq_addr <= ch2_addr;
         ch2_rq_din  <= ch2_din;
     end
+    if (video_rd_req && state != STATE_STARTUP) begin
+        video_rd_rq      <= 1;
+        video_rd_rq_addr <= video_rd_addr;
+    end
+    if (video_wr_req && state != STATE_STARTUP) begin
+        video_wr_rq      <= 1;
+        video_wr_rq_addr <= video_wr_addr;
+        video_wr_rq_data <= video_wr_data;
+    end
 
     // Dequeue into processing pipeline
-    // Priority: ch1 read > ch1 write > ch2 (read or write)
+    // Priority: ch1 read > ch1 write > ch2 > video read > video frame-slot write
     if (!req_pending && state == STATE_IDLE) begin
         if (rd_rq | rd_req) begin
             req_pending      <= 1;
             req_is_write     <= 0;
             req_is_ch2       <= 0;
             req_is_ch2_write <= 0;
+            req_is_video_rd  <= 0;
             req_addr         <= {rd_addr[23:0], 1'b0};
             rd_rq            <= 0;
         end else if (wr_rq) begin
@@ -245,6 +290,7 @@ always @(posedge clk) begin
             req_is_write     <= 1;
             req_is_ch2       <= 0;
             req_is_ch2_write <= 0;
+            req_is_video_rd  <= 0;
             req_addr         <= wr_rq_addr;
             req_wdata        <= wr_rq_data;
             wr_rq            <= 0;
@@ -253,6 +299,7 @@ always @(posedge clk) begin
             req_is_write     <= 0;
             req_is_ch2       <= 1;
             req_is_ch2_write <= 0;
+            req_is_video_rd  <= 0;
             req_addr         <= {ch2_rq_addr[23:0], 1'b0};
             ch2_rd_rq        <= 0;
         end else if (ch2_wr_rq) begin
@@ -260,9 +307,27 @@ always @(posedge clk) begin
             req_is_write     <= 1;
             req_is_ch2       <= 1;
             req_is_ch2_write <= 1;
+            req_is_video_rd  <= 0;
             req_addr         <= {ch2_rq_addr[23:0], 1'b0};
             ch2_rq_din       <= ch2_rq_din; // Hold write data
             ch2_wr_rq        <= 0;
+        end else if (video_rd_rq) begin
+            req_pending      <= 1;
+            req_is_write     <= 0;
+            req_is_ch2       <= 0;
+            req_is_ch2_write <= 0;
+            req_is_video_rd  <= 1;
+            req_addr         <= video_rd_rq_addr;
+            video_rd_rq      <= 0;
+        end else if (video_wr_rq) begin
+            req_pending      <= 1;
+            req_is_write     <= 1;
+            req_is_ch2       <= 0;
+            req_is_ch2_write <= 0;
+            req_is_video_rd  <= 0;
+            req_addr         <= video_wr_rq_addr;
+            req_wdata        <= video_wr_rq_data;
+            video_wr_rq      <= 0;
         end
     end
 
@@ -347,6 +412,7 @@ always @(posedge clk) begin
                 command     <= CMD_READ;
                 req_pending <= 0;
                 if (req_is_ch2) capture_is_ch2 <= 1;
+                if (req_is_video_rd) capture_is_video <= 1;
                 data_ready_delay[CAPTURE_DELAY] <= 1;
                 state       <= STATE_IDLE_5;
             end
@@ -397,13 +463,18 @@ always @(posedge clk) begin
         dram_dq          <= 16'hZZZZ;
         rd_ready         <= 0;
         ch2_ready        <= 0;
+        video_rd_ready   <= 0;
         data_ready_delay <= 0;
         capture_is_ch2   <= 0;
+        capture_is_video <= 0;
         req_pending      <= 0;
+        req_is_video_rd  <= 0;
         wr_rq            <= 0;
         rd_rq            <= 0;
         ch2_rd_rq        <= 0;
         ch2_wr_rq        <= 0;
+        video_rd_rq      <= 0;
+        video_wr_rq      <= 0;
     end
 end
 

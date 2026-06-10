@@ -720,7 +720,7 @@ always @(posedge clk_sys) begin
     end
 end
 
-// ---- SDRAM Controller (ROM + EWRAM + Save State staging) ----
+// ---- SDRAM Controller (ROM + EWRAM + Save State staging + video frame slots) ----
 // Ch1: ROM reads from gba_top (OR save state staging reads during load Phase 2)
 //      ROM loading writes from data_loader (OR staging writes during load Phase 1)
 // Ch2: EWRAM reads/writes from bus_out FSM
@@ -744,6 +744,22 @@ wire [15:0] ss_sdram_wr_data;
 wire        ss_sdram_rd_req;
 wire [24:0] ss_sdram_rd_addr;
 wire        ss_serving_active;
+
+// Video SDRAM frame-slot traffic from video_adapter. Scanout uses drained
+// SDRAM line buffers and blanks a line if SDRAM misses the scanout deadline.
+wire        video_sdram_rd;
+wire [24:0] video_sdram_rd_addr;
+wire [63:0] video_sdram_rd_data;
+wire        video_sdram_rd_ready;
+wire        video_sdram_rd_pending;
+wire        video_sdram_wr;
+wire [24:0] video_sdram_addr;
+wire [15:0] video_sdram_data;
+wire        video_sdram_pending;
+wire [31:0] video_shadow_frame_counts;
+wire [31:0] video_shadow_fifo_status;
+wire [31:0] video_scanout_status;
+wire [31:0] video_arbitration_status;
 
 // Mux SDRAM ch1 write port: ROM loader OR save state staging writes
 // ROM loading only at boot, staging writes only during gameplay. No overlap.
@@ -776,6 +792,16 @@ sdram_pocket sdram (
     .wr_addr        ( sdram_wr_addr_mux ),
     .wr_data        ( sdram_wr_data_mux ),
 
+    // Low-priority video frame-slot reads/writes
+    .video_rd_req   ( video_sdram_rd ),
+    .video_rd_addr  ( video_sdram_rd_addr ),
+    .video_rd_data  ( video_sdram_rd_data ),
+    .video_rd_ready ( video_sdram_rd_ready ),
+
+    .video_wr_req   ( video_sdram_wr ),
+    .video_wr_addr  ( video_sdram_addr ),
+    .video_wr_data  ( video_sdram_data ),
+
     // Ch2: EWRAM read/write — from bus_out FSM
     .ch2_rd         ( sdram_ch2_rd ),
     .ch2_wr         ( sdram_ch2_wr ),
@@ -787,6 +813,8 @@ sdram_pocket sdram (
     // Ready signal — high when SDRAM init complete
     .sdram_ready    ( sdram_ready ),
     .wr_pending     ( sdram_wr_pending ),
+    .video_rd_pending ( video_sdram_rd_pending ),
+    .video_wr_pending ( video_sdram_pending ),
 
     // Physical SDRAM pins
     .dram_a         ( dram_a ),
@@ -1264,9 +1292,30 @@ core_bridge_cmd icb (
 // ============================================================
 
 wire [31:0] ss_bridge_rd_data;
+wire [7:0]  frame_status_vid;
+wire [7:0]  frame_status_debug;
+wire [31:0] video_shadow_frame_counts_debug;
+wire [31:0] video_shadow_fifo_status_debug;
+wire [31:0] video_scanout_status_debug;
+wire [31:0] video_arbitration_status_debug;
 
 always @(*) begin
     casex (bridge_addr)
+    32'h0000008C: begin
+        bridge_rd_data <= {24'd0, frame_status_debug};
+    end
+    32'h00000090: begin
+        bridge_rd_data <= video_shadow_frame_counts_debug;
+    end
+    32'h00000094: begin
+        bridge_rd_data <= video_shadow_fifo_status_debug;
+    end
+    32'h00000098: begin
+        bridge_rd_data <= video_scanout_status_debug;
+    end
+    32'h0000009C: begin
+        bridge_rd_data <= video_arbitration_status_debug;
+    end
     32'h2xxxxxxx: begin
         bridge_rd_data <= save_read_bridge_data;
     end
@@ -1372,7 +1421,7 @@ wire [1:0] turbo_mode_s;
 synch_3 #(.WIDTH(2)) turbo_mode_sync(turbo_mode, turbo_mode_s, clk_sys);
 
 // ============================================================
-// Section 4: Video Output — framebuffer + raster scan
+// Section 4: Video Output — SDRAM line-buffer raster scan
 // ============================================================
 
 // Video clock: clk_vid (8.388608 MHz = 2× GBA dot clock) with DDR 90° phase
@@ -1383,6 +1432,14 @@ assign video_rgb_clock_90 = clk_vid_90;
 wire [15:0] pixel_out_addr;
 wire [17:0] pixel_out_data;
 wire        pixel_out_we;
+wire        frame_complete;
+
+wire video_sdram_busy = ~sdram_ready | ~dataslot_allcomplete_s |
+                        ss_serving_active | video_sdram_pending | video_sdram_wr |
+                        video_sdram_rd_pending | video_sdram_rd;
+wire video_sdram_rd_busy = ~sdram_ready | ~dataslot_allcomplete_s |
+                           ss_serving_active | video_sdram_rd_pending |
+                           video_sdram_rd;
 
 video_adapter video_out (
     .clk_sys    ( clk_sys ),
@@ -1392,14 +1449,61 @@ video_adapter video_out (
     .pixel_addr ( pixel_out_addr ),
     .pixel_data ( pixel_out_data ),
     .pixel_we   ( pixel_out_we ),
+    .frame_complete ( frame_complete ),
+
+    .video_sdram_busy ( video_sdram_busy ),
+    .video_sdram_wr   ( video_sdram_wr ),
+    .video_sdram_addr ( video_sdram_addr ),
+    .video_sdram_data ( video_sdram_data ),
+    .shadow_frame_counts ( video_shadow_frame_counts ),
+    .shadow_fifo_status  ( video_shadow_fifo_status ),
+
+    .video_sdram_rd_busy  ( video_sdram_rd_busy ),
+    .video_sdram_rd       ( video_sdram_rd ),
+    .video_sdram_rd_addr  ( video_sdram_rd_addr ),
+    .video_sdram_rd_data  ( video_sdram_rd_data ),
+    .video_sdram_rd_ready ( video_sdram_rd_ready ),
+    .scanout_status       ( video_scanout_status ),
+    .arbitration_status   ( video_arbitration_status ),
 
     .video_rgb  ( video_rgb ),
     .video_de   ( video_de ),
     .video_vs   ( video_vs ),
     .video_hs   ( video_hs ),
-    .video_skip ( video_skip )
+    .video_skip ( video_skip ),
+
+    .frame_status ( frame_status_vid )
 );
 
+synch_3 #(.WIDTH(8)) frame_status_sync(
+    frame_status_vid,
+    frame_status_debug,
+    clk_74a
+);
+
+synch_3 #(.WIDTH(32)) video_shadow_frame_counts_sync(
+    video_shadow_frame_counts,
+    video_shadow_frame_counts_debug,
+    clk_74a
+);
+
+synch_3 #(.WIDTH(32)) video_shadow_fifo_status_sync(
+    video_shadow_fifo_status,
+    video_shadow_fifo_status_debug,
+    clk_74a
+);
+
+synch_3 #(.WIDTH(32)) video_scanout_status_sync(
+    video_scanout_status,
+    video_scanout_status_debug,
+    clk_74a
+);
+
+synch_3 #(.WIDTH(32)) video_arbitration_status_sync(
+    video_arbitration_status,
+    video_arbitration_status_debug,
+    clk_74a
+);
 
 // ============================================================
 // Section 5: Audio Output — audio_mixer with IIR filter + DC blocker
@@ -1667,6 +1771,7 @@ gba_top #(
     .pixel_out_addr      ( pixel_out_addr ),
     .pixel_out_data      ( pixel_out_data ),
     .pixel_out_we        ( pixel_out_we ),
+    .frame_complete      ( frame_complete ),
     // Audio
     .sound_out_left      ( sound_out_left ),
     .sound_out_right     ( sound_out_right ),
