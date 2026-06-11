@@ -497,10 +497,12 @@ begin
                   bus_out_active       <= '0';
                   state                <= LOADINTERNALS_WRITEFIRST;
                   internal_bus_out.Din <= bus_out_Dout(31 downto 0);
-                  internal_bus_out.ena <= '1';
+                  bus_wait             <= '1';
+                  done_r               <= '0';
                end if;
                
             when LOADINTERNALS_WRITEFIRST =>
+               internal_bus_out.ena <= '1';
                if (done_r = '1') then
                   state                <= LOADINTERNALS_SETTLE;
                   internal_bus_out.adr <= std_logic_vector(unsigned(internal_bus_out.adr) + 1);
@@ -625,7 +627,6 @@ begin
    
 
 end architecture;
-
 
 
 
