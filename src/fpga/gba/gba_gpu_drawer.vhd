@@ -29,7 +29,6 @@ entity gba_gpu_drawer is
       pixel_out_addr       : out   integer range 0 to 38399;
       pixel_out_data       : out   std_logic_vector(14 downto 0);
       pixel_out_we         : out   std_logic := '0';
-      frame_complete       : out   std_logic := '0';
       drawer_ready         : out   std_logic := '0';
                            
       linecounter          : in    unsigned(7 downto 0);
@@ -1317,14 +1316,12 @@ begin
          drawline_1       <= drawline;
          hblank_trigger_1 <= hblank_trigger;
          start_draw <= '0';
-         frame_complete <= '0';
          
          -- Track whether this rendered frame has accounted for all visible lines.
          -- Classic fast-forward relies on retaining this map across incomplete
          -- frames; otherwise skipped lines remain frozen in the framebuffer.
          if (vblank_trigger = '1') then
             if (linesDrawn = 160) then
-               frame_complete <= '1';
                lineUpToDate <= (others => '0');
             end if;
             linesDrawn      <= 0;
@@ -1593,6 +1590,5 @@ begin
    end process;
 
 end architecture;
-
 
 

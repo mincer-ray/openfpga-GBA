@@ -121,7 +121,6 @@ entity gba_top is
       pixel_out_addr        : buffer integer range 0 to 38399;       -- address for framebuffer 
       pixel_out_data        : buffer std_logic_vector(17 downto 0);  -- RGB data for framebuffer 
       pixel_out_we          : buffer std_logic;                      -- new pixel for framebuffer
-      frame_complete        : out    std_logic := '0';               -- fully drawn frame completed
       -- sound                             
       sound_out_left        : out    std_logic_vector(15 downto 0) := (others => '0');
       sound_out_right       : out    std_logic_vector(15 downto 0) := (others => '0');
@@ -270,7 +269,6 @@ architecture arch of gba_top is
    
    signal hblank_trigger : std_logic;
    signal vblank_trigger : std_logic;
-   signal frame_complete_int : std_logic := '0';
    signal videodma_start : std_logic;
    signal videodma_stop  : std_logic;
    
@@ -744,7 +742,6 @@ begin
       pixel_out_addr       => pixel_out_addr,
       pixel_out_data       => pixel_out_data,
       pixel_out_we         => pixel_out_we,
-      frame_complete       => frame_complete_int,
       render_stall         => gpu_render_stall,
 
       new_cycles           => new_cycles,
@@ -788,8 +785,6 @@ begin
       DISPSTAT_debug       => DISPSTAT_debug       
    );
 
-   frame_complete <= frame_complete_int;
-   
    igba_timer : entity work.gba_timer
    generic map
    (
