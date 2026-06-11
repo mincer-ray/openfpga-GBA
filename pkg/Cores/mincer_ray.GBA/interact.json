@@ -59,6 +59,26 @@
         ]
       },
       {
+        "name": "Fast Forward Video",
+        "id": 26,
+        "type": "list",
+        "enabled": true,
+        "address": "0x8C",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 1,
+        "options": [
+          {
+            "name": "Classic",
+            "value": 0
+          },
+          {
+            "name": "Stable",
+            "value": 1
+          }
+        ]
+      },
+      {
         "name": "Force Quirk (Dangerous)",
         "id": 30,
         "type": "list",

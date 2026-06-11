@@ -18,6 +18,7 @@ entity gba_gpu_timing is
       gb_on                : in  std_logic;
       reset                : in  std_logic;
       lockspeed            : in  std_logic;
+      stable_ff_video      : in  std_logic;
       
       savestate_bus        : inout proc_bus_gb_type;
       
@@ -191,7 +192,7 @@ begin
                   
                   when HBLANK =>
                      if (cycles >= 224) then -- 272
-                        if (lockspeed = '0' and drawer_ready = '0') then
+                        if (lockspeed = '0' and stable_ff_video = '1' and drawer_ready = '0') then
                            render_wait <= '1';
                         else
                            render_wait <= '0';
@@ -280,5 +281,4 @@ begin
    end process;
 
 end architecture;
-
 

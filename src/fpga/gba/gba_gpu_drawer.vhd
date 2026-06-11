@@ -1319,13 +1319,14 @@ begin
          start_draw <= '0';
          frame_complete <= '0';
          
-         -- Count lines drawn in this GBA frame. Incomplete fast-forward
-         -- frames are dropped rather than completed from later line epochs.
+         -- Track whether this rendered frame has accounted for all visible lines.
+         -- Classic fast-forward relies on retaining this map across incomplete
+         -- frames; otherwise skipped lines remain frozen in the framebuffer.
          if (vblank_trigger = '1') then
             if (linesDrawn = 160) then
                frame_complete <= '1';
+               lineUpToDate <= (others => '0');
             end if;
-            lineUpToDate   <= (others => '0');
             linesDrawn      <= 0;
          end if;  
          if (drawline_1 = '1' and linesDrawn < 160 and (drawstate = IDLE or nextLineDrawn = '1')) then
@@ -1592,7 +1593,6 @@ begin
    end process;
 
 end architecture;
-
 
 
 

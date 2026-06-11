@@ -24,6 +24,7 @@ entity gba_top is
       -- settings                 
       GBA_on                : in     std_logic;  -- switching from off to on = reset
       GBA_lockspeed         : in     std_logic;  -- 1 = 100% speed, 0 = max speed
+      GBA_stable_ff_video   : in     std_logic;  -- 1 = hold HBlank in fast forward until drawer is idle
       GBA_cputurbo          : in     std_logic;  -- 1 = cpu free running, all other 16 mhz
       GBA_flash_1m          : in     std_logic;  -- 1 when string "FLASH1M_V" is anywhere in gamepak
       CyclePrecalc          : in     std_logic_vector(15 downto 0); -- 100 seems to be ok to keep fullspeed for all games
@@ -733,6 +734,7 @@ begin
       gb_bus               => gb_bus,
 
       lockspeed            => GBA_lockspeed,
+      stable_ff_video      => GBA_stable_ff_video,
       maxpixels            => maxpixels,
 
       bitmapdrawmode       => bitmapdrawmode,

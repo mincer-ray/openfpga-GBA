@@ -21,8 +21,9 @@ entity gba_gpu is
       savestate_bus        : inout proc_bus_gb_type;
                            
       gb_bus               : inout proc_bus_gb_type := ((others => 'Z'), (others => 'Z'), (others => 'Z'), 'Z', 'Z', 'Z', "ZZ", "ZZZZ", 'Z');
-                      
+
       lockspeed            : in    std_logic;
+      stable_ff_video      : in    std_logic;
       maxpixels            : in    std_logic;
 
       bitmapdrawmode       : out   std_logic;
@@ -109,6 +110,7 @@ begin
       gb_on                        => gb_on,
       reset                        => reset,
       lockspeed                    => lockspeed,
+      stable_ff_video              => stable_ff_video,
       
       savestate_bus                => savestate_bus,
             
