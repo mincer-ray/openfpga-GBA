@@ -35,7 +35,7 @@
         ]
       },
       {
-        "name": "Turbo",
+        "name": "Button Turbo",
         "id": 25,
         "type": "list",
         "enabled": true,
@@ -59,7 +59,7 @@
         ]
       },
       {
-        "name": "Fast Forward Video",
+        "name": "Fast Forward Render",
         "id": 26,
         "type": "list",
         "enabled": true,
@@ -69,7 +69,7 @@
         "defaultval": 1,
         "options": [
           {
-            "name": "Classic",
+            "name": "Fastest",
             "value": 0
           },
           {
