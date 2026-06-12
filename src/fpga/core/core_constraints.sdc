@@ -115,16 +115,10 @@ set_multicycle_path -setup 2 \
 set_multicycle_path -hold 1 \
   -from [get_registers {*igba_savestates|internal_bus_out.Adr*}] \
   -to   [get_registers {*igba_savestates|dout_r[*]}]
-# Write path: Adr/Din → address compare/data mux in eProcReg_gba → Dout_buffer
+# Write path: Adr → address compare in eProcReg_gba → Dout_buffer
 set_multicycle_path -setup 2 \
   -from [get_registers {*igba_savestates|internal_bus_out.Adr*}] \
   -to   [get_registers {*eProcReg_gba*Dout_buffer*}]
 set_multicycle_path -hold 1 \
   -from [get_registers {*igba_savestates|internal_bus_out.Adr*}] \
-  -to   [get_registers {*eProcReg_gba*Dout_buffer*}]
-set_multicycle_path -setup 2 \
-  -from [get_registers {*igba_savestates|internal_bus_out.Din*}] \
-  -to   [get_registers {*eProcReg_gba*Dout_buffer*}]
-set_multicycle_path -hold 1 \
-  -from [get_registers {*igba_savestates|internal_bus_out.Din*}] \
   -to   [get_registers {*eProcReg_gba*Dout_buffer*}]
