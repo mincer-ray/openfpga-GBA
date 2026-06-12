@@ -6,7 +6,6 @@ LLM assisted port of [MiSTer GBA core](https://github.com/MiSTer-devel/GBA_MiSTe
 
 ## Features
 
-- **Cart Saves**
 - **Filters**
 - **Save States**
 - **Fast Forward (Bound to Y button)**
@@ -17,6 +16,13 @@ LLM assisted port of [MiSTer GBA core](https://github.com/MiSTer-devel/GBA_MiSTe
 ##  Currently Not Included
 
 - **Link Cable** - normal serial modes/accessories, 3p/4p Multiplayer, GCN link, GBA wireless, Single Pak download
+
+## Fast Forward
+
+You can change fast forward behavior with the "Fast Forward Render" setting in the menu. Choices are:
+
+- Fastest: core runs as fast as possible, highest possible fast forward speed but can show tearing/mixed/corrupted frames in some games.
+- Stable: wait for full frames. video during fast forward is MUCH more stable, however max fast forward speed is decreased.
 
 ## RTC and Save Compatibility
 

@@ -24,6 +24,7 @@ entity gba_top is
       -- settings                 
       GBA_on                : in     std_logic;  -- switching from off to on = reset
       GBA_lockspeed         : in     std_logic;  -- 1 = 100% speed, 0 = max speed
+      GBA_stable_ff_video   : in     std_logic;  -- 1 = hold HBlank in fast forward until drawer is idle
       GBA_cputurbo          : in     std_logic;  -- 1 = cpu free running, all other 16 mhz
       GBA_flash_1m          : in     std_logic;  -- 1 when string "FLASH1M_V" is anywhere in gamepak
       CyclePrecalc          : in     std_logic_vector(15 downto 0); -- 100 seems to be ok to keep fullspeed for all games
@@ -135,7 +136,7 @@ end entity;
 architecture arch of gba_top is
 
    constant SPEEDDIV    : integer := 6;
-   constant DEBUG_NOCPU : std_logic := '0';  
+   constant DEBUG_NOCPU : std_logic := '0';
 
    -- debug
    signal debug_bus_active : std_logic := '0';
@@ -210,7 +211,8 @@ architecture arch of gba_top is
    signal VRAM_Hi_be           : std_logic_vector(3 downto 0);
    signal vram_blocked         : std_logic;
    signal vram_cycle           : std_logic;
-                               
+   signal gpu_render_stall     : std_logic := '0';
+
    signal OAMRAM_PROC_addr     : integer range 0 to 255;
    signal OAMRAM_PROC_datain   : std_logic_vector(31 downto 0);
    signal OAMRAM_PROC_dataout  : std_logic_vector(31 downto 0);
@@ -730,6 +732,7 @@ begin
       gb_bus               => gb_bus,
 
       lockspeed            => GBA_lockspeed,
+      stable_ff_video      => GBA_stable_ff_video,
       maxpixels            => maxpixels,
 
       bitmapdrawmode       => bitmapdrawmode,
@@ -738,9 +741,10 @@ begin
       pixel_out_y          => pixel_out_y,
       pixel_out_addr       => pixel_out_addr,
       pixel_out_data       => pixel_out_data,
-      pixel_out_we         => pixel_out_we,  
-      
-      new_cycles           => new_cycles,      
+      pixel_out_we         => pixel_out_we,
+      render_stall         => gpu_render_stall,
+
+      new_cycles           => new_cycles,
       new_cycles_valid     => new_cycles_valid,
               
       IRP_HBlank           => IRP_HBlank,
@@ -780,7 +784,7 @@ begin
    
       DISPSTAT_debug       => DISPSTAT_debug       
    );
-   
+
    igba_timer : entity work.gba_timer
    generic map
    (
@@ -967,9 +971,10 @@ begin
          else
             cycles_ahead <= 0;
          end if;
-         
+
          gba_step <= '0';
          if (DEBUG_NOCPU = '0' and sleep_savestate = '0' and sleep_external = '0' and
+            gpu_render_stall = '0' and
             (GBA_lockspeed = '0' or GBA_cputurbo = '1' or cycles_ahead < unsigned(CyclePrecalc))) then
             gba_step <= '1';
          end if;

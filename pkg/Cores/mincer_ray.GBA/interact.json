@@ -35,7 +35,7 @@
         ]
       },
       {
-        "name": "Turbo",
+        "name": "Button Turbo",
         "id": 25,
         "type": "list",
         "enabled": true,
@@ -55,6 +55,26 @@
           {
             "name": "Turbo B Button",
             "value": 2
+          }
+        ]
+      },
+      {
+        "name": "Fast Forward Render",
+        "id": 26,
+        "type": "list",
+        "enabled": true,
+        "address": "0x8C",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 1,
+        "options": [
+          {
+            "name": "Fastest",
+            "value": 0
+          },
+          {
+            "name": "Stable",
+            "value": 1
           }
         ]
       },

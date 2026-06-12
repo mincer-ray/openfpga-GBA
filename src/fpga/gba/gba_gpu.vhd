@@ -21,8 +21,9 @@ entity gba_gpu is
       savestate_bus        : inout proc_bus_gb_type;
                            
       gb_bus               : inout proc_bus_gb_type := ((others => 'Z'), (others => 'Z'), (others => 'Z'), 'Z', 'Z', 'Z', "ZZ", "ZZZZ", 'Z');
-                      
+
       lockspeed            : in    std_logic;
+      stable_ff_video      : in    std_logic;
       maxpixels            : in    std_logic;
 
       bitmapdrawmode       : out   std_logic;
@@ -31,8 +32,9 @@ entity gba_gpu is
       pixel_out_y          : out   integer range 0 to 159;
       pixel_out_addr       : out   integer range 0 to 38399;
       pixel_out_data       : out   std_logic_vector(17 downto 0);
-      pixel_out_we         : out   std_logic := '0';               
-                           
+      pixel_out_we         : out   std_logic := '0';
+      render_stall         : out   std_logic := '0';
+
       new_cycles           : in    unsigned(7 downto 0);
       new_cycles_valid     : in    std_logic;
                                    
@@ -90,6 +92,7 @@ architecture arch of gba_gpu is
    signal pixel_addr           : integer range 0 to 38399;
    signal pixel_data           : std_logic_vector(14 downto 0);
    signal pixel_we             : std_logic := '0';
+   signal drawer_ready         : std_logic := '0';
 
    signal vram_block_mode      : std_logic;
 begin 
@@ -105,14 +108,17 @@ begin
       gb_on                        => gb_on,
       reset                        => reset,
       lockspeed                    => lockspeed,
+      stable_ff_video              => stable_ff_video,
       
       savestate_bus                => savestate_bus,
             
       gb_bus                       => gb_bus,
-            
-      new_cycles                   => new_cycles,      
+
+      new_cycles                   => new_cycles,
       new_cycles_valid             => new_cycles_valid,
-                                   
+      drawer_ready                 => drawer_ready,
+      render_stall                 => render_stall,
+
       IRP_HBlank                   => IRP_HBlank,
       IRP_VBlank                   => IRP_VBlank, 
       IRP_LCDStat                  => IRP_LCDStat,
@@ -156,9 +162,10 @@ begin
       pixel_out_y            => pixel_y,
       pixel_out_addr         => pixel_addr,
       pixel_out_data         => pixel_data,
-      pixel_out_we           => pixel_we,  
-                             
-      linecounter            => linecounter_drawer,    
+      pixel_out_we           => pixel_we,
+      drawer_ready           => drawer_ready,
+
+      linecounter            => linecounter_drawer,
       drawline               => drawline,
       refpoint_update        => refpoint_update,
       hblank_trigger         => hblank_trigger,  
@@ -201,8 +208,3 @@ begin
    pixel_out_data <= pixel_data(14 downto 10) & pixel_data(14) & pixel_data(9 downto 5) & pixel_data(9) & pixel_data(4 downto 0) & pixel_data(4);
 
 end architecture;
-
-
-
-
-
