@@ -92,9 +92,12 @@ module psram #(
   localparam CE_BEFORE_ADV_CYCLE_COUNT =
   `CEIL((MIN_CE_BEFORE_ADV_HIGH) / PERIOD);
 
+  localparam MIN_LATCH_CYCLE_COUNT = 2;
+
   localparam ADV_CYCLE_COUNT =
-  `MAX(`MAX(ADV_PULSE_CYCLE_COUNT, ADDRESS_SETUP_BEFORE_ADV_CYCLE_COUNT),
-       CE_BEFORE_ADV_CYCLE_COUNT);
+  `MAX(MIN_LATCH_CYCLE_COUNT,
+       `MAX(`MAX(ADV_PULSE_CYCLE_COUNT, ADDRESS_SETUP_BEFORE_ADV_CYCLE_COUNT),
+            CE_BEFORE_ADV_CYCLE_COUNT));
   localparam ADDR_HOLD_AFTER_ADV_CYCLE_COUNT =
   `CEIL(MIN_ADDRESS_HOLD_AFTER_ADV_HIGH / PERIOD);
 
@@ -140,7 +143,8 @@ module psram #(
   // - Addr must be held for MIN_ADDRESS_SETUP_BEFORE_ADV_HIGH (ADDRESS_SETUP_BEFORE_ADV_CYCLE_COUNT) before pulse ends
   // These requirements are combined in ADV_CYCLE_COUNT
   //
-  // 1 is subtracted here as STATE_NONE will transition to WRITE_INITIAL_COUNT, which may be this state (if ADV_CYCLE_COUNT == 1)
+  // 1 is subtracted here as STATE_NONE transitions to WRITE_INITIAL_COUNT on the launch cycle.
+  // ADV_CYCLE_COUNT is clamped to at least two cycles above.
   localparam STATE_WRITE_ADV_END = WRITE_INITIAL_COUNT - 1 + ADV_CYCLE_COUNT;
 
   // Actions:
@@ -185,7 +189,8 @@ module psram #(
   // - Addr must be held for MIN_ADDRESS_SETUP_BEFORE_ADV_HIGH (ADDRESS_SETUP_BEFORE_ADV_CYCLE_COUNT) before pulse ends
   // These requirements are combined in ADV_CYCLE_COUNT
   //
-  // 1 is subtracted here as STATE_NONE will transition to READ_INITIAL_COUNT, which may be this state (if ADV_CYCLE_COUNT == 1)
+  // 1 is subtracted here as STATE_NONE transitions to READ_INITIAL_COUNT on the launch cycle.
+  // ADV_CYCLE_COUNT is clamped to at least two cycles above.
   localparam STATE_READ_ADV_END = READ_INITIAL_COUNT - 1 + ADV_CYCLE_COUNT;
 
   // Actions:
