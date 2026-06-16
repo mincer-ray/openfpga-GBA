@@ -121,4 +121,51 @@ if [ -n "$FMAX_FILE" ] && [ -f "$FMAX_FILE" ]; then
   ' "$FMAX_FILE"
 fi
 
+REPORT_DIR="$(dirname "$STA_FILE")"
+if [ -n "$FMAX_FILE" ] && [ -f "$FMAX_FILE" ]; then
+  REPORT_DIR="$(dirname "$FMAX_FILE")"
+fi
+
+print_path_report_worst() {
+  local label="$1"
+  local file="$2"
+
+  [ -f "$file" ] || return 0
+
+  awk -v label="$label" '
+    /Report Timing: Found/ {
+      found = 1
+      paths = $0
+      sub(/^.*Found /, "", paths)
+      sub(/ .*/, "", paths)
+
+      if (match($0, /Worst case slack is [-+0-9.]+/)) {
+        slack = substr($0, RSTART, RLENGTH)
+        sub(/^Worst case slack is /, "", slack)
+        printf "    %-20s %+8.3f ns  (%s paths)\n", label, slack + 0, paths
+      } else {
+        printf "    %-20s %8s     (%s paths)\n", label, "n/a", paths
+      }
+      exit
+    }
+
+    END {
+      if (!found)
+        printf "    %-20s %s\n", label, "no summary found"
+    }
+  ' "$file"
+}
+
+if [ -f "$REPORT_DIR/ap_core.sta.cram0_output_setup.rpt" ] || \
+   [ -f "$REPORT_DIR/ap_core.sta.cram0_input_setup.rpt" ] || \
+   [ -f "$REPORT_DIR/ap_core.sta.cram0_output_hold.rpt" ] || \
+   [ -f "$REPORT_DIR/ap_core.sta.cram0_input_hold.rpt" ]; then
+  echo ""
+  echo "  CRAM0 path reports:"
+  print_path_report_worst "output setup" "$REPORT_DIR/ap_core.sta.cram0_output_setup.rpt"
+  print_path_report_worst "input setup"  "$REPORT_DIR/ap_core.sta.cram0_input_setup.rpt"
+  print_path_report_worst "output hold"  "$REPORT_DIR/ap_core.sta.cram0_output_hold.rpt"
+  print_path_report_worst "input hold"   "$REPORT_DIR/ap_core.sta.cram0_input_hold.rpt"
+fi
+
 echo ""
