@@ -73,23 +73,37 @@ set_input_delay -clock sdram_clk -min 2.5 [get_ports {dram_dq[*]}]
 #   tCVS = 7 ns  (CE# setup before ADV# high)
 #   tAVH = 2 ns  (address hold after ADV# high)
 #
-# The controller now keeps address/CE/ADV active for at least two clk_sys
-# cycles before ADV# rises.  Budget the FPGA output path against the worst
-# setup requirement so CRAM paths remain timed and visible in TimeQuest.
+# The controller keeps address/CE/ADV active for at least two clk_sys cycles
+# before ADV# rises, then holds address DQ for one more clk_sys cycle. These
+# constraints are FPGA-side timing budgets that keep CRAM paths visible to
+# TimeQuest; they are not a full external-memory timing model with board/package
+# delay and relative pin-to-pin analysis.
+# Budget each FPGA output path against the external requirement it participates in.
 set clk_sys_clock [get_clocks {ic|mp1|mf_pllbase_inst|sys_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
 
-set CRAM0_CLK_SYS_PERIOD_NS 9.934
+set CRAM0_CLK_SYS_PERIOD_NS [get_clock_info -period $clk_sys_clock]
 set CRAM0_LATCH_CYCLES 2
-set CRAM0_LATCH_SETUP_NS 7.0
-set CRAM0_OUTPUT_MAX_NS [expr {$CRAM0_CLK_SYS_PERIOD_NS * $CRAM0_LATCH_CYCLES - $CRAM0_LATCH_SETUP_NS}]
+set CRAM0_ADDR_HOLD_CYCLES 1
+set CRAM0_TAVS_NS 5.0
+set CRAM0_TCVS_NS 7.0
+set CRAM0_TAVH_NS 2.0
 
-set cram0_output_ports [get_ports { \
-  cram0_a[*] cram0_adv_n cram0_ce0_n cram0_ce1_n cram0_clk cram0_cre \
-  cram0_dq[*] cram0_lb_n cram0_oe_n cram0_ub_n cram0_we_n \
-}]
+set CRAM0_ADDR_OUTPUT_MAX_NS [expr {$CRAM0_CLK_SYS_PERIOD_NS * $CRAM0_LATCH_CYCLES - $CRAM0_TAVS_NS}]
+set CRAM0_CE_OUTPUT_MAX_NS [expr {$CRAM0_CLK_SYS_PERIOD_NS * $CRAM0_LATCH_CYCLES - $CRAM0_TCVS_NS}]
+set CRAM0_ADV_OUTPUT_MAX_NS [expr {$CRAM0_CLK_SYS_PERIOD_NS * $CRAM0_ADDR_HOLD_CYCLES - $CRAM0_TAVH_NS}]
+set CRAM0_OTHER_OUTPUT_MAX_NS $CRAM0_CE_OUTPUT_MAX_NS
+
+set cram0_addr_output_ports [get_ports {cram0_a[*] cram0_dq[*]}]
+set cram0_ce_output_ports [get_ports {cram0_ce0_n cram0_ce1_n}]
+set cram0_adv_output_port [get_ports {cram0_adv_n}]
+set cram0_other_output_ports [get_ports {cram0_clk cram0_cre cram0_lb_n cram0_oe_n cram0_ub_n cram0_we_n}]
+set cram0_output_ports [get_ports {cram0_a[*] cram0_adv_n cram0_ce0_n cram0_ce1_n cram0_clk cram0_cre cram0_dq[*] cram0_lb_n cram0_oe_n cram0_ub_n cram0_we_n}]
 set cram0_input_ports [get_ports {cram0_dq[*] cram0_wait}]
 
-set_max_delay $CRAM0_OUTPUT_MAX_NS -from $clk_sys_clock -to $cram0_output_ports
+set_max_delay $CRAM0_ADDR_OUTPUT_MAX_NS -from $clk_sys_clock -to $cram0_addr_output_ports
+set_max_delay $CRAM0_CE_OUTPUT_MAX_NS -from $clk_sys_clock -to $cram0_ce_output_ports
+set_max_delay $CRAM0_ADV_OUTPUT_MAX_NS -from $clk_sys_clock -to $cram0_adv_output_port
+set_max_delay $CRAM0_OTHER_OUTPUT_MAX_NS -from $clk_sys_clock -to $cram0_other_output_ports
 set_min_delay 0.000 -from $clk_sys_clock -to $cram0_output_ports
 
 # Read data is sampled by clk_sys after the controller's async access wait.
