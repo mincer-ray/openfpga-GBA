@@ -26,11 +26,9 @@ You can change fast forward behavior with the "Fast Forward Render" setting in t
 
 ## RTC and Save Compatibility
 
-Cartridge save data and RTC state are stored separately. The `.sav`/`.srm` file remains a standard GBA save size, while RTC games also use a fixed 16-byte `.rtc` sidecar. This lets the cartridge save move between this core and emulators without trimming core-specific bytes.
+RTC data is stored in a separate .rtc file which should leave the .sav compatible with other cores.
 
-Older releases appended the RTC record to the cartridge save. On first load, this release recognizes a complete valid legacy footer and migrates it into the sidecar; the legacy record takes precedence if both forms exist. Later writeback normalizes the cartridge save to its standard size and writes RTC state only to the sidecar.
-
-Downgrading to a release that predates sidecars will not update the `.rtc` file and may append a new footer to the cartridge save. Returning to this release imports that valid footer first, preserving changes made while downgraded. The sidecar format is eight little-endian 16-bit words: timestamp words 0–1, packed RTC calendar words 2–4, and zero padding words 5–7.
+Downgrade flow is included so on updating to a version of the core with the new feature, the core should correctly update your saves as well.
 
 >For saves you might be having issues with try the new online self help tool I have added here:
 >
