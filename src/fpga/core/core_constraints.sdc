@@ -120,12 +120,13 @@ set_min_delay 0.000 -from $cram0_input_ports -to $clk_sys_clock
 # board-level I/O.
 set_false_path -from [get_ports { \
   bridge_1wire bridge_spimiso bridge_spimosi bridge_spiss \
-  port_tran_sck port_tran_sd port_tran_si \
+  port_tran_sck port_tran_sd port_tran_si port_tran_so \
 }]
 
 set_false_path -to [get_ports { \
   bridge_1wire bridge_spimiso bridge_spimosi \
-  port_tran_sck port_tran_sck_dir port_tran_sd port_tran_sd_dir port_tran_so \
+  port_tran_sck port_tran_sck_dir port_tran_sd port_tran_sd_dir \
+  port_tran_si port_tran_si_dir port_tran_so port_tran_so_dir \
   scal_auddac scal_audlrck scal_audmclk scal_clk scal_de scal_hs scal_skip \
   scal_vid[*] scal_vs \
 }]
