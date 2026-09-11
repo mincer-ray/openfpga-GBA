@@ -247,32 +247,34 @@ assign cart_tran_pin31 = 1'bz;
 assign cart_tran_pin31_dir = 1'b0;
 
 // ---- Link Cable ----
-// Supported: 2-player multi-player mode on SD/SC with SO/SI terminal detect.
-// Unsupported normal serial modes remain stubbed inside gba_serial.
-wire serial_data_out;   // SO terminal-chain output
-wire serial_clk_out;    // SC/SCK idle level
-wire serial_int_clock;  // kept low while normal serial is unsupported
-wire serial_sd_out;     // SD data output
-wire serial_sd_dir;     // SD direction
-wire serial_sc_out;     // SC handshake output
-wire serial_sc_dir;     // SC direction
+// gba_serial owns the mode mux and supplies one value/OE pair per physical
+// pin. Keep the FPGA pad and Pocket level-translator direction in lockstep.
+// Feeding every pad back also permits GPIO readback and driven-pin feedback.
+wire serial_so_out;
+wire serial_so_oe;
+wire serial_so_in = port_tran_so;
+wire serial_si_out;
+wire serial_si_oe;
+wire serial_si_in = port_tran_si;
+wire serial_sd_out;
+wire serial_sd_oe;
+wire serial_sd_in = port_tran_sd;
+wire serial_sc_out;
+wire serial_sc_oe;
+wire serial_sc_in = port_tran_sck;
+wire serial_link_active;
 
-// SO pin: terminal-chain output for multi-player mode
-assign port_tran_so     = serial_data_out;
-assign port_tran_so_dir = 1'b1;
+assign port_tran_so     = serial_so_oe ? serial_so_out : 1'bz;
+assign port_tran_so_dir = serial_so_oe;
 
-// SI pin: always input
-assign port_tran_si     = 1'bz;
-assign port_tran_si_dir = 1'b0;
+assign port_tran_si     = serial_si_oe ? serial_si_out : 1'bz;
+assign port_tran_si_dir = serial_si_oe;
 
-// SCK/SC pin: driven only by supported multi-player handshaking
-assign port_tran_sck     = serial_sc_dir  ? serial_sc_out  :
-                           serial_int_clock ? serial_clk_out : 1'bz;
-assign port_tran_sck_dir = serial_sc_dir | serial_int_clock;
+assign port_tran_sd     = serial_sd_oe ? serial_sd_out : 1'bz;
+assign port_tran_sd_dir = serial_sd_oe;
 
-// SD pin: driven by multi-player mode UART
-assign port_tran_sd     = serial_sd_dir ? serial_sd_out : 1'bz;
-assign port_tran_sd_dir = serial_sd_dir;
+assign port_tran_sck     = serial_sc_oe ? serial_sc_out : 1'bz;
+assign port_tran_sck_dir = serial_sc_oe;
 
 // ---- PSRAM Controller (EWRAM die 0 + Cart Saves die 1) ----
 // Memory map on cram0:
@@ -1528,9 +1530,12 @@ always @(posedge clk_sys) begin
         ff_toggle_state <= ~ff_toggle_state;
 end
 
-wire fast_forward = (ff_mode_s == 2'd2) ? 1'b0 :            // Disabled
-                    (ff_mode_s == 2'd1) ? ff_toggle_state :  // Toggle
-                    ff_button;                               // Hold (default)
+wire fast_forward_requested = (ff_mode_s == 2'd2) ? 1'b0 :            // Disabled
+                              (ff_mode_s == 2'd1) ? ff_toggle_state :  // Toggle
+                              ff_button;                               // Hold (default)
+// Real accessories continue in wall time. Hold the CPU at native speed while
+// a Normal/GPIO/JoyBus transaction is active or within its idle guard window.
+wire fast_forward = fast_forward_requested & ~serial_link_active;
 
 
 // ============================================================
@@ -1685,19 +1690,20 @@ gba_top #(
     .KeyR                ( key_r ),
     .KeyL                ( key_l ),
     // AnalogTiltX/Y and Rumble removed (solar/gyro/tilt/rumble stripped)
-    // Link cable pins; normal serial is stubbed, 2-player multi-player is supported
-    .serial_data_out     ( serial_data_out ),
-    .serial_data_in      ( port_tran_si ),
-    .serial_clk_out      ( serial_clk_out ),
-    .serial_clk_in       ( port_tran_sck ),
-    .serial_int_clock    ( serial_int_clock ),
-    // Link cable — Multi-player mode
+    // Link cable pins — value, output-enable, and physical feedback per pin
+    .serial_so_out       ( serial_so_out ),
+    .serial_so_oe        ( serial_so_oe ),
+    .serial_so_in        ( serial_so_in ),
+    .serial_si_out       ( serial_si_out ),
+    .serial_si_oe        ( serial_si_oe ),
+    .serial_si_in        ( serial_si_in ),
     .serial_sd_out       ( serial_sd_out ),
-    .serial_sd_in        ( port_tran_sd ),
-    .serial_sd_dir       ( serial_sd_dir ),
+    .serial_sd_oe        ( serial_sd_oe ),
+    .serial_sd_in        ( serial_sd_in ),
     .serial_sc_out       ( serial_sc_out ),
-    .serial_sc_in        ( port_tran_sck ),
-    .serial_sc_dir       ( serial_sc_dir ),
+    .serial_sc_oe        ( serial_sc_oe ),
+    .serial_sc_in        ( serial_sc_in ),
+    .serial_link_active  ( serial_link_active ),
     // Debug (unused)
     .GBA_BusAddr         ( 28'd0 ),
     .GBA_BusRnW          ( 1'b0 ),

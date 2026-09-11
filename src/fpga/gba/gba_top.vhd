@@ -95,19 +95,21 @@ entity gba_top is
       KeyR                  : in     std_logic;
       KeyL                  : in     std_logic;
       -- AnalogTiltX/Y and Rumble removed (solar/gyro/tilt/rumble stripped)
-      -- Link cable I/O — Normal mode (SO/SI/SCK)
-      serial_data_out       : out    std_logic;
-      serial_data_in        : in     std_logic;
-      serial_clk_out        : out    std_logic;
-      serial_clk_in         : in     std_logic;
-      serial_int_clock      : out    std_logic;
-      -- Link cable I/O — Multi-player mode (SD/SC)
+      -- Link cable I/O. Each physical pin has one centrally selected value/OE
+      -- pair plus feedback from the pin, shared by every serial mode.
+      serial_so_out         : out    std_logic;
+      serial_so_oe          : out    std_logic;
+      serial_so_in          : in     std_logic;
+      serial_si_out         : out    std_logic;
+      serial_si_oe          : out    std_logic;
+      serial_si_in          : in     std_logic;
       serial_sd_out         : out    std_logic;
+      serial_sd_oe          : out    std_logic;
       serial_sd_in          : in     std_logic;
-      serial_sd_dir         : out    std_logic;
       serial_sc_out         : out    std_logic;
+      serial_sc_oe          : out    std_logic;
       serial_sc_in          : in     std_logic;
-      serial_sc_dir         : out    std_logic;
+      serial_link_active    : out    std_logic;
       -- debug interface
       GBA_BusAddr           : in     std_logic_vector(27 downto 0);
       GBA_BusRnW            : in     std_logic;
@@ -314,6 +316,7 @@ architecture arch of gba_top is
    signal IRP_DMA     : std_logic_vector(3 downto 0);
    signal IRP_Serial  : std_logic;
    signal IRP_Joypad  : std_logic;
+   signal serial_abort_link : std_logic;
    -- signal IRP_Gamepak : std_logic; -- not implemented
    
    signal cycles_ahead    : integer range 0 to 131071 := 0;
@@ -326,6 +329,8 @@ begin
 
    -- dummy modules
    igba_reservedregs : entity work.gba_reservedregs port map ( clk100, gb_bus);
+
+   serial_abort_link <= loading_savestate or not GBA_on;
    
    igba_serial : entity work.gba_serial
    port map
@@ -335,18 +340,21 @@ begin
       new_cycles       => new_cycles,
       new_cycles_valid => new_cycles_valid,
       new_exact_cycle  => new_exact_cycle,
+      serial_abort     => serial_abort_link,
       IRP_Serial       => IRP_Serial,
-      serial_data_out  => serial_data_out,
-      serial_data_in   => serial_data_in,
-      serial_clk_out   => serial_clk_out,
-      serial_clk_in    => serial_clk_in,
-      serial_int_clock => serial_int_clock,
-      serial_sd_out    => serial_sd_out,
-      serial_sd_in     => serial_sd_in,
-      serial_sd_dir    => serial_sd_dir,
-      serial_sc_out    => serial_sc_out,
-      serial_sc_in     => serial_sc_in,
-      serial_sc_dir    => serial_sc_dir
+      serial_link_active => serial_link_active,
+      serial_so_out => serial_so_out,
+      serial_so_oe  => serial_so_oe,
+      serial_so_in  => serial_so_in,
+      serial_si_out => serial_si_out,
+      serial_si_oe  => serial_si_oe,
+      serial_si_in  => serial_si_in,
+      serial_sd_out => serial_sd_out,
+      serial_sd_oe  => serial_sd_oe,
+      serial_sd_in  => serial_sd_in,
+      serial_sc_out => serial_sc_out,
+      serial_sc_oe  => serial_sc_oe,
+      serial_sc_in  => serial_sc_in
    );
 
    -- real modules

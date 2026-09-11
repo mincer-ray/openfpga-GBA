@@ -316,13 +316,17 @@ set_global_assignment -name PHYSICAL_SYNTHESIS_REGISTER_DUPLICATION ON
 set_global_assignment -name PHYSICAL_SYNTHESIS_REGISTER_RETIMING ON
 set_global_assignment -name PHYSICAL_SYNTHESIS_ASYNCHRONOUS_SIGNAL_PIPELINING ON
 set_global_assignment -name PHYSICAL_SYNTHESIS_EFFORT EXTRA
-set_global_assignment -name FITTER_EFFORT "AUTO FIT"
+set_global_assignment -name FITTER_EFFORT "STANDARD FIT"
 set_global_assignment -name ROUTER_LCELL_INSERTION_AND_LOGIC_DUPLICATION ON
 set_global_assignment -name FINAL_PLACEMENT_OPTIMIZATION ALWAYS
 set_global_assignment -name ALM_REGISTER_PACKING_EFFORT LOW
 set_global_assignment -name AUTO_DELAY_CHAINS_FOR_HIGH_FANOUT_INPUT_PINS ON
 set_global_assignment -name PLACEMENT_EFFORT_MULTIPLIER 4.0
 set_global_assignment -name ROUTER_TIMING_OPTIMIZATION_LEVEL MAXIMUM
+
+# Keep the CPU mode selector local to its banked-register restore muxes.  The
+# clean overlay-free fit otherwise leaves one routing-dominated setup path.
+set_instance_assignment -name MAX_FANOUT 4 -to "ic|gba|igba_cpu|cpu_mode_fiq"
 
 # Timing Closure: scoped optimizations for DMA-to-memorymux critical path
 set_instance_assignment -name AUTO_RESOURCE_SHARING OFF -to "ic|igba|igba_memorymux|*"
@@ -890,6 +894,8 @@ set_global_assignment -name VHDL_FILE ../gba/gba_gpu_timing.vhd
 set_global_assignment -name VHDL_FILE ../gba/gba_joypad.vhd
 set_global_assignment -name VHDL_FILE ../gba/gba_reservedregs.vhd
 set_global_assignment -name VHDL_FILE ../gba/reggba_serial.vhd
+set_global_assignment -name VHDL_FILE ../gba/gba_serial_normal.vhd
+set_global_assignment -name VHDL_FILE ../gba/gba_serial_joybus.vhd
 set_global_assignment -name VHDL_FILE ../gba/gba_serial.vhd
 set_global_assignment -name VHDL_FILE ../gba/gba_gpiodummy.vhd
 set_global_assignment -name VHDL_FILE ../gba/gba_sound.vhd
