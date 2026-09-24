@@ -26,13 +26,15 @@ You can change fast forward behavior with the "Fast Forward Render" setting in t
 
 ## RTC and Save Compatibility
 
-When a game uses RTC (either detected automatically or forced on), the core appends RTC data to the end of the save file. This makes the save file larger than a standard GBA save. If you then try to load that save on a GBA core that doesn't support RTC, it will fail with an error because the save file size doesn't match what the core expects. To use the save on a non-RTC core, you would need to trim the extra RTC bytes from the end of the file to restore it to its original size.
+RTC data is stored in a separate .rtc file which should leave the .sav compatible with other cores.
+
+Downgrade flow is included so on updating to a version of the core with the new feature, the core should correctly update your saves as well.
 
 >For saves you might be having issues with try the new online self help tool I have added here:
 >
 >https://www.peterdegenaro.com/pages/rtc-save-tool.html
 
-The following tools might be able to help you but I have not tested them:
+For save files produced by older releases, the following tools might be able to help, but I have not tested them:
 - [mGBA](https://mgba.io/) — The built-in Save Converter tool (Tools → Save Converter) can export saves with RTC data stripped. Requires mGBA v0.10.3 or later.
 - [save-file-converter](https://github.com/euan-forrester/save-file-converter) — A web-based tool that can convert and resize save files across many retro formats.
 

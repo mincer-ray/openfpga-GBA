@@ -20,6 +20,7 @@ module cart_quirks (
 
     output reg         sram_quirk,      // Force no SRAM (emulation detection games)
     output reg         gpio_quirk,      // Enable GPIO (RTC, solar, gyro) → specialmodule
+    output reg         rtc_quirk,       // Game specifically uses an RTC
     output reg         tilt_quirk,      // Enable tilt sensor
     output reg         solar_quirk,     // Game has solar sensor
     output reg         memory_remap,    // Memory mirroring quirk
@@ -31,6 +32,7 @@ module cart_quirks (
             // Default: no quirks
             sram_quirk    <= 1'b0;
             gpio_quirk    <= 1'b0;
+            rtc_quirk     <= 1'b0;
             tilt_quirk    <= 1'b0;
             solar_quirk   <= 1'b0;
             memory_remap  <= 1'b0;
@@ -50,12 +52,12 @@ module cart_quirks (
             if (cart_id[31:8] == "BT4") sram_quirk <= 1; // no SRAM
 
             // === GPIO quirk only (RTC, special peripherals) ===
-            if (cart_id[31:8] == "BPE") gpio_quirk <= 1; // RTC
-            if (cart_id[31:8] == "AXV") gpio_quirk <= 1; // RTC
-            if (cart_id[31:8] == "AXP") gpio_quirk <= 1; // RTC
+            if (cart_id[31:8] == "BPE") begin gpio_quirk <= 1; rtc_quirk <= 1; end // RTC
+            if (cart_id[31:8] == "AXV") begin gpio_quirk <= 1; rtc_quirk <= 1; end // RTC
+            if (cart_id[31:8] == "AXP") begin gpio_quirk <= 1; rtc_quirk <= 1; end // RTC
             if (cart_id[31:8] == "RZW") gpio_quirk <= 1; // gyro
-            if (cart_id[31:8] == "BKA") gpio_quirk <= 1; // RTC
-            if (cart_id[31:8] == "BR4") gpio_quirk <= 1; // RTC
+            if (cart_id[31:8] == "BKA") begin gpio_quirk <= 1; rtc_quirk <= 1; end // RTC
+            if (cart_id[31:8] == "BR4") begin gpio_quirk <= 1; rtc_quirk <= 1; end // RTC
             if (cart_id[31:8] == "V49") gpio_quirk <= 1; // rumble
             if (cart_id[31:8] == "2GB") gpio_quirk <= 1; // GPIO
 
@@ -68,9 +70,9 @@ module cart_quirks (
             if (cart_id[31:8] == "KYG") tilt_quirk <= 1; // tilt sensor
 
             // === GPIO + Solar quirk ===
-            if (cart_id[31:8] == "U3I") begin gpio_quirk <= 1; solar_quirk <= 1; end // solar sensor
-            if (cart_id[31:8] == "U32") begin gpio_quirk <= 1; solar_quirk <= 1; end // solar sensor
-            if (cart_id[31:8] == "U33") begin gpio_quirk <= 1; solar_quirk <= 1; end // solar sensor
+            if (cart_id[31:8] == "U3I") begin gpio_quirk <= 1; rtc_quirk <= 1; solar_quirk <= 1; end // RTC + solar sensor
+            if (cart_id[31:8] == "U32") begin gpio_quirk <= 1; rtc_quirk <= 1; solar_quirk <= 1; end // RTC + solar sensor
+            if (cart_id[31:8] == "U33") begin gpio_quirk <= 1; rtc_quirk <= 1; solar_quirk <= 1; end // RTC + solar sensor
 
             // === Classic NES Series (SRAM + memory remap) — full 4-char match ===
             if (cart_id == "FBME") begin sram_quirk <= 1; memory_remap <= 1; end // no SRAM + remap
