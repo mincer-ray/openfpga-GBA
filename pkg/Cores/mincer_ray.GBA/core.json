@@ -9,8 +9,8 @@
       "description": "Game Boy Advance",
       "author": "mincer_ray",
       "url": "https://github.com/mincer-ray/openfpga-GBA",
-      "version": "0.6.2",
-      "date_release": "2026-06-16"
+      "version": "0.7.1",
+      "date_release": "2026-09-24"
     },
     "framework": {
       "target_product": "Analogue Pocket",

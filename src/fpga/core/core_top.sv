@@ -656,6 +656,7 @@ wire [31:0] bus_out_Dout;   // Read data to gba_top (in to gba_top)
 wire [25:0] bus_out_Adr;    // Address from gba_top
 wire        bus_out_rnw;    // 1=read, 0=write
 wire        bus_out_ena;    // Request strobe
+wire  [3:0] bus_out_be;     // EWRAM write byte enables
 reg         bus_out_done;
 
 // Arbitration state machine
@@ -677,6 +678,7 @@ reg         sdram_ch2_rd;
 reg         sdram_ch2_wr;
 reg  [24:0] sdram_ch2_addr;
 reg  [31:0] sdram_ch2_din;
+reg   [3:0] sdram_ch2_be;
 wire [31:0] sdram_ch2_dout;
 wire        sdram_ch2_ready;
 
@@ -706,6 +708,7 @@ always @(posedge clk_sys) begin
                     end else begin
                         sdram_ch2_wr  <= 1;
                         sdram_ch2_din <= bus_out_Din;
+                        sdram_ch2_be  <= bus_out_be;
                     end
                     bus_state <= BUS_EWRAM_WAIT;
                 end else begin
@@ -851,6 +854,7 @@ sdram_pocket sdram (
     .ch2_wr         ( sdram_ch2_wr ),
     .ch2_addr       ( sdram_ch2_addr ),
     .ch2_din        ( sdram_ch2_din ),
+    .ch2_be         ( sdram_ch2_be ),
     .ch2_dout       ( sdram_ch2_dout ),
     .ch2_ready      ( sdram_ch2_ready ),
 
@@ -1657,6 +1661,7 @@ gba_top #(
     .bus_out_Adr         ( bus_out_Adr ),
     .bus_out_rnw         ( bus_out_rnw ),
     .bus_out_ena         ( bus_out_ena ),
+    .bus_out_be          ( bus_out_be ),
     .bus_out_done        ( bus_out_done ),
     // Save state — connected to save_state_controller
     .SAVE_out_Din        ( ss_din ),
