@@ -837,7 +837,7 @@ set_global_assignment -name QIP_FILE ../core/mf_pllbase.qip
 
 # Phase 3: Memory controllers & data loaders
 set_global_assignment -name SYSTEMVERILOG_FILE ../core/sdram_pocket.sv
-set_global_assignment -name SYSTEMVERILOG_FILE ../pocket/data_loader.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../pocket/apf_write_ingress.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../pocket/psram.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../pocket/data_unloader.sv
 
@@ -855,6 +855,9 @@ set_global_assignment -name VERILOG_FILE ../pocket/mf_audio_pll/mf_audio_pll_000
 # Phase 5: Cart Saves, Save Type Detection & RTC
 set_global_assignment -name SYSTEMVERILOG_FILE ../core/save_type_detector.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../core/cart_quirks.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../core/rtc_persistence.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../core/rtc_export.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../core/save_psram_unloader.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../core/save_state_controller.sv
 
 # GBA core VHDL — MEM library (SyncRam primitives)
