@@ -6,7 +6,7 @@
         "gba"
       ],
       "shortname": "GBA",
-      "description": "Game Boy Advance",
+      "description": "Game Boy Advance with RTC. Active development, check the README for more feature info.",
       "author": "mincer_ray",
       "url": "https://github.com/mincer-ray/openfpga-GBA",
       "version": "0.7.1",

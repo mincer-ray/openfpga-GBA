@@ -26,7 +26,9 @@ You can change fast forward behavior with the "Fast Forward Render" setting in t
 
 ## RTC and Save Compatibility
 
-When a game uses RTC (either detected automatically or forced on), the core appends RTC data to the end of the save file. This makes the save file larger than a standard GBA save. If you then try to load that save on a GBA core that doesn't support RTC, it will fail with an error because the save file size doesn't match what the core expects. To use the save on a non-RTC core, you would need to trim the extra RTC bytes from the end of the file to restore it to its original size.
+NEW (0.8.0 and above): RTC timestamp is now saved as an external .rtc file next to the .sav. This should increase save compatibility with other cores and emulators since the .sav now presents as correctly sized.
+
+LEGACY (0.7.1 and below): When a game uses RTC (either detected automatically or forced on), the core appends RTC data to the end of the save file. This makes the save file larger than a standard GBA save. If you then try to load that save on a GBA core that doesn't support RTC, it will fail with an error because the save file size doesn't match what the core expects. To use the save on a non-RTC core, you would need to trim the extra RTC bytes from the end of the file to restore it to its original size.
 
 >For saves you might be having issues with try the new online self help tool I have added here:
 >
