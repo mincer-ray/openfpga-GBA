@@ -326,10 +326,10 @@ set_global_assignment -name ROUTER_TIMING_OPTIMIZATION_LEVEL MAXIMUM
 
 # Keep the CPU mode selector local to its banked-register restore muxes.  The
 # clean overlay-free fit otherwise leaves one routing-dominated setup path.
-set_instance_assignment -name MAX_FANOUT 4 -to "ic|gba|igba_cpu|cpu_mode_fiq"
+set_instance_assignment -name MAX_FANOUT 4 -to ic|gba|igba_cpu|cpu_mode_fiq
 
 # Timing Closure: scoped optimizations for DMA-to-memorymux critical path
-set_instance_assignment -name AUTO_RESOURCE_SHARING OFF -to "ic|igba|igba_memorymux|*"
+set_instance_assignment -name AUTO_RESOURCE_SHARING OFF -to ic|igba|igba_memorymux|*
 
 # Assembler Assignments
 # =====================
@@ -837,7 +837,7 @@ set_global_assignment -name QIP_FILE ../core/mf_pllbase.qip
 
 # Phase 3: Memory controllers & data loaders
 set_global_assignment -name SYSTEMVERILOG_FILE ../core/sdram_pocket.sv
-set_global_assignment -name SYSTEMVERILOG_FILE ../pocket/data_loader.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../pocket/apf_write_ingress.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../pocket/psram.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../pocket/data_unloader.sv
 
@@ -855,6 +855,9 @@ set_global_assignment -name VERILOG_FILE ../pocket/mf_audio_pll/mf_audio_pll_000
 # Phase 5: Cart Saves, Save Type Detection & RTC
 set_global_assignment -name SYSTEMVERILOG_FILE ../core/save_type_detector.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../core/cart_quirks.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../core/rtc_persistence.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../core/rtc_export.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ../core/save_psram_unloader.sv
 set_global_assignment -name SYSTEMVERILOG_FILE ../core/save_state_controller.sv
 
 # GBA core VHDL — MEM library (SyncRam primitives)
@@ -915,4 +918,4 @@ set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to port_tran_sck
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to port_tran_sd
 set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
 set_global_assignment -name NUM_PARALLEL_PROCESSORS 4
-set_global_assignment -name SEED 8
+set_global_assignment -name SEED 5

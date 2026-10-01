@@ -62,6 +62,7 @@ entity gba_top is
       bus_out_Adr           : out    std_logic_vector(25 downto 0); -- all addresses are DWORD addresses!
       bus_out_rnw           : out    std_logic;                     -- read = 1, write = 0
       bus_out_ena           : out    std_logic;                     -- one cycle high for each action
+      bus_out_be            : out    std_logic_vector(3 downto 0); -- EWRAM write byte enables
       bus_out_done          : in     std_logic;                     -- should be one cycle high when write is done or read value is valid
       -- savestate           
       SAVE_out_Din          : out    std_logic_vector(63 downto 0); -- data read from savestate
@@ -562,6 +563,7 @@ begin
       bus_out_rnw          => bus_out_rnw,  
       bus_out_ena          => bus_out_ena,  
       bus_out_done         => bus_out_done,
+      bus_out_be           => bus_out_be,
       
       gb_bus_out           => gb_bus,
       

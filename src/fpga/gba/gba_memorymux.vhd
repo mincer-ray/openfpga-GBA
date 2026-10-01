@@ -35,6 +35,7 @@ entity gba_memorymux is
       bus_out_Adr          : out    std_logic_vector(25 downto 0) := (others => '0'); -- all addresses are DWORD addresses!
       bus_out_rnw          : out    std_logic := '0';
       bus_out_ena          : out    std_logic := '0';
+      bus_out_be           : out    std_logic_vector(3 downto 0) := (others => '1');
       bus_out_done         : in     std_logic;
                                     
       gb_bus_out           : inout  proc_bus_gb_type := ((others => 'Z'), (others => 'Z'), (others => 'Z'), 'Z', 'Z', 'Z', "ZZ", "ZZZZ", 'Z');          
@@ -145,7 +146,7 @@ architecture arch of gba_memorymux is
       READ_UNREADABLE,
       ROTATE,
       READ_GPIO,
-      WAIT_WRAMREADMODIFYWRITE,
+
       WRITE_WRAMLARGE,
       WRITE_WRAMSMALL,
       WRITE_REG,
@@ -590,14 +591,8 @@ begin
 
                      case (adr_save(27 downto 24)) is
                         when x"2" =>
-                           if (acc_save = ACCESS_32BIT) then
-                              state <= WRITE_WRAMLARGE;
-                           else
-                              bus_out_Adr  <= std_logic_vector(to_unsigned(Softmap_GBA_WRam_ADDR, busadr_bits) + unsigned(adr_save(17 downto 2)));
-                              bus_out_rnw  <= '1';
-                              bus_out_ena  <= '1';
-                              state             <= WAIT_WRAMREADMODIFYWRITE;
-                           end if;
+                           -- SDRAM masks preserve untouched bytes without a readback.
+                           state <= WRITE_WRAMLARGE;
 
                         -- done is ok, if the next state goes back to idle without conditions
                         when x"3" => state <= WRITE_WRAMSMALL; mem_bus_done <= '1';
@@ -903,34 +898,25 @@ begin
             
             ----- writing
             
-            when WAIT_WRAMREADMODIFYWRITE =>
-               if (bus_out_done = '1') then
-                  state            <= WRITE_WRAMLARGE;
-                  rotate_writedata <= bus_out_Dout;
-                  if (acc_save = ACCESS_8BIT) then
-                     case(adr_save(1 downto 0)) is
-                        when "00" => rotate_writedata( 7 downto  0) <= Dout_save(7 downto 0);
-                        when "01" => rotate_writedata(15 downto  8) <= Dout_save(7 downto 0);
-                        when "10" => rotate_writedata(23 downto 16) <= Dout_save(7 downto 0);
-                        when "11" => rotate_writedata(31 downto 24) <= Dout_save(7 downto 0);
-                        when others => null;
-                     end case;
+            when WRITE_WRAMLARGE =>
+               bus_out_Din <= rotate_writedata;
+               bus_out_be  <= "1111";
+               if (acc_save = ACCESS_8BIT) then
+                  bus_out_Din <= Dout_save(7 downto 0) & Dout_save(7 downto 0) & Dout_save(7 downto 0) & Dout_save(7 downto 0);
+                  bus_out_be <= std_logic_vector(shift_left(to_unsigned(1, 4), to_integer(unsigned(adr_save(1 downto 0)))));
+               elsif (acc_save = ACCESS_16BIT) then
+                  bus_out_Din <= Dout_save(15 downto 0) & Dout_save(15 downto 0);
+                  if (adr_save(1) = '1') then
+                     bus_out_be <= "1100";
                   else
-                     if (adr_save(1) = '1') then
-                        rotate_writedata(31 downto 16) <= Dout_save(15 downto 0);
-                     else
-                        rotate_writedata(15 downto  0) <= Dout_save(15 downto 0);
-                     end if;
+                     bus_out_be <= "0011";
                   end if;
                end if;
-            
-            when WRITE_WRAMLARGE =>
-               bus_out_Din  <= rotate_writedata;
                bus_out_Adr  <= std_logic_vector(to_unsigned(Softmap_GBA_WRam_ADDR, busadr_bits) + unsigned(adr_save(17 downto 2)));
                bus_out_rnw  <= '0';
                bus_out_ena  <= '1';
                state        <= WAIT_PROCBUS;
-            
+
             when WRITE_WRAMSMALL =>
                smallram_addr_w  <= to_integer(unsigned(adr_save(14 downto 2)));
                state <= IDLE;
