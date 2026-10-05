@@ -1,0 +1,372 @@
+diff --git a/Makefile b/Makefile
+index 6568ef3..794a9e1 100644
+--- a/Makefile
++++ b/Makefile
+@@ -33,6 +33,13 @@ CFLAGS	:=	-g -Wall -O3 -fomit-frame-pointer -ffast-math \
+ 
+ CFLAGS	+=	$(INCLUDE)
+ 
++ifdef BENCH_AUTORUN
++CFLAGS	+=	-DBENCH_AUTORUN
++ifneq ($(strip $(BENCH_SUITE_COMMIT)),)
++CFLAGS	+=	-DBENCH_SUITE_COMMIT=\"$(BENCH_SUITE_COMMIT)\"
++endif
++endif
++
+ CXXFLAGS	:=	$(CFLAGS) -fno-rtti -fno-exceptions
+ 
+ ASFLAGS	:=	$(ARCH) $(INCLUDE)
+diff --git a/src/main.c b/src/main.c
+index c44d32f..f7ea4ba 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -39,6 +39,213 @@ const u32 vramBase[] = { 0x50D0, 0x51D1, 0x52D2, 0x53D3, 0x54D4, 0x55D5, 0x56D6,
+ EWRAM_DATA const int _anchor = 0xABAD1DEA; // There seems to be a bug in the ld script that this fixes
+ IWRAM_DATA struct ActiveInfo activeTestInfo = { {'I', 'n', 'f', 'o'}, -1, -1, -1 };
+ 
++#ifdef BENCH_AUTORUN
++#define BENCH_MAGIC "GBA_BENCH_V1"
++#define BENCH_HEADER_SIZE 0x20
++#define BENCH_SAVE_SIZE 0x10000
++#define BENCH_PAYLOAD_CAPACITY (BENCH_SAVE_SIZE - BENCH_HEADER_SIZE)
++#define BENCH_FINAL_RESERVE 0x1000
++#define BENCH_LIST_CHUNK 32
++
++#ifndef BENCH_SUITE_COMMIT
++#define BENCH_SUITE_COMMIT "unknown"
++#endif
++
++EWRAM_BSS u8 benchPayload[BENCH_PAYLOAD_CAPACITY];
++static u32 benchPayloadLength = 0;
++static u32 benchTotalPasses = 0;
++static u32 benchTotalResults = 0;
++static bool benchTruncated = false;
++static bool benchUseFinalReserve = false;
++
++static int benchId8(u8 value) {
++	return value == 0xFF ? -1 : value;
++}
++
++static int benchId16(u16 value) {
++	return value == 0xFFFF ? -1 : value;
++}
++
++static void benchAppendRaw(const char* data, size_t length) {
++	size_t limit = benchUseFinalReserve ? BENCH_PAYLOAD_CAPACITY : BENCH_PAYLOAD_CAPACITY - BENCH_FINAL_RESERVE;
++	size_t available = 0;
++	if (benchPayloadLength < limit) {
++		available = limit - benchPayloadLength;
++	}
++	if (length > available) {
++		length = available;
++		benchTruncated = true;
++	}
++	if (!length) {
++		return;
++	}
++	memcpy(benchPayload + benchPayloadLength, data, length);
++	benchPayloadLength += length;
++}
++
++static void benchAppendChar(char value) {
++	benchAppendRaw(&value, 1);
++}
++
++static void benchAppendFormat(const char* fmt, ...) {
++	char tmp[192];
++
++	va_list args;
++	va_start(args, fmt);
++	int size = vsnprintf(tmp, sizeof(tmp), fmt, args);
++	va_end(args);
++
++	if (size < 0) {
++		return;
++	}
++	if ((size_t) size >= sizeof(tmp)) {
++		size = sizeof(tmp) - 1;
++		benchTruncated = true;
++	}
++	benchAppendRaw(tmp, size);
++}
++
++static bool benchCanAppendEvent(size_t length) {
++	size_t limit = BENCH_PAYLOAD_CAPACITY - BENCH_FINAL_RESERVE;
++	if (benchPayloadLength + length > limit) {
++		benchTruncated = true;
++		return false;
++	}
++	return true;
++}
++
++static void benchAppendLineText(const char* value) {
++	while (*value) {
++		char ch = *value++;
++		if (ch == '\n' || ch == '\r') {
++			ch = ' ';
++		}
++		benchAppendChar(ch);
++	}
++}
++
++static void benchAppendMessage(const char* message) {
++	size_t length = strlen(message) + 24;
++	if (!benchCanAppendEvent(length)) {
++		return;
++	}
++	benchAppendFormat("f %i %i %i ",
++		benchId8(activeTestInfo.suiteId),
++		benchId8(activeTestInfo.testId),
++		benchId16(activeTestInfo.subtestId));
++	benchAppendLineText(message);
++	benchAppendChar('\n');
++}
++
++static void benchAppendSuite(const struct TestSuite* activeSuite, size_t suiteId) {
++	u32 passes = *activeSuite->passes;
++	u32 total = *activeSuite->totalResults;
++	bool oldUseFinalReserve = benchUseFinalReserve;
++	const char* names[BENCH_LIST_CHUNK];
++	bool results[BENCH_LIST_CHUNK];
++	size_t offset = 0;
++	size_t i;
++	u8 bit = 0;
++	u8 value = 0;
++	static const char hex[] = "0123456789ABCDEF";
++	benchTotalPasses += passes;
++	benchTotalResults += total;
++
++	benchUseFinalReserve = true;
++	benchAppendFormat("s %lu %lu %lu %lu ",
++		(unsigned long) suiteId,
++		(unsigned long) activeSuite->nTests,
++		(unsigned long) passes,
++		(unsigned long) total);
++	while (offset < activeSuite->nTests) {
++		size_t count = activeSuite->list(names, results, BENCH_LIST_CHUNK, offset);
++		if (!count) {
++			break;
++		}
++		for (i = 0; i < count; ++i) {
++			if (results[i]) {
++				value |= 1 << bit;
++			}
++			++bit;
++			if (bit == 4) {
++				benchAppendChar(hex[value & 0xF]);
++				bit = 0;
++				value = 0;
++			}
++		}
++		offset += count;
++	}
++	if (bit) {
++		benchAppendChar(hex[value & 0xF]);
++	}
++	benchAppendChar('\n');
++	benchUseFinalReserve = oldUseFinalReserve;
++}
++
++static u32 benchCrc32(const u8* data, u32 length) {
++	u32 crc = 0xFFFFFFFF;
++	u32 i;
++	for (i = 0; i < length; ++i) {
++		crc ^= data[i];
++		int bit;
++		for (bit = 0; bit < 8; ++bit) {
++			u32 mask = 0 - (crc & 1);
++			crc = (crc >> 1) ^ (0xEDB88320 & mask);
++		}
++	}
++	return ~crc;
++}
++
++static void benchWriteBytes(volatile u8* output, const u8* data, u32 length) {
++	u32 i;
++	for (i = 0; i < length; ++i) {
++		output[i] = data[i];
++	}
++}
++
++static void benchWriteU32(volatile u8* output, u32 value) {
++	output[0] = value;
++	output[1] = value >> 8;
++	output[2] = value >> 16;
++	output[3] = value >> 24;
++}
++
++static void benchBegin(void) {
++	benchPayloadLength = 0;
++	benchTotalPasses = 0;
++	benchTotalResults = 0;
++	benchTruncated = false;
++	benchUseFinalReserve = false;
++	benchAppendRaw("m 4 mgba-suite-pocket-save ", 27);
++	benchAppendLineText(BENCH_SUITE_COMMIT);
++	benchAppendChar('\n');
++}
++
++static void benchFinish(void) {
++	volatile u8* sram = (volatile u8*) SRAM;
++	u32 i;
++	bool oldUseFinalReserve = benchUseFinalReserve;
++
++	benchUseFinalReserve = true;
++	benchAppendFormat("t %lu %lu %u\n",
++		(unsigned long) benchTotalPasses,
++		(unsigned long) benchTotalResults,
++		benchTruncated ? 1 : 0);
++	benchAppendRaw("d\n", 2);
++	benchUseFinalReserve = oldUseFinalReserve;
++
++	for (i = 0; i < BENCH_SAVE_SIZE; ++i) {
++		sram[i] = 0;
++	}
++	benchWriteBytes(sram + BENCH_HEADER_SIZE, benchPayload, benchPayloadLength);
++	benchWriteBytes(sram, (const u8*) BENCH_MAGIC, sizeof(BENCH_MAGIC) - 1);
++	benchWriteU32(sram + 0x10, benchPayloadLength);
++	benchWriteU32(sram + 0x14, benchCrc32(benchPayload, benchPayloadLength));
++	benchWriteU32(sram + 0x18, benchTruncated ? 1 : 0);
++	benchWriteU32(sram + 0x1C, BENCH_HEADER_SIZE);
++}
++#endif
++
+ void updateTextGrid(void) {
+ 	int i;
+ 	for (i = 0; i < 20 * 32; ++i) {
+@@ -69,11 +276,7 @@ const struct TestSuite* const suites[] = {
+ 
+ const size_t nSuites = sizeof(suites) / sizeof(*suites);
+ 
+-static void runSuite(const struct TestSuite* activeSuite) {
+-	const char* testNameBuffer[160];
+-	bool results[160];
+-	int testIndex = 0;
+-	int viewIndex = 0;
++static void executeSuite(const struct TestSuite* activeSuite) {
+ 	strcpy(&textGrid[GRID_STRIDE], activeSuite->name);
+ 	strcpy(&textGrid[GRID_STRIDE * 4 + 11], "Testing...");
+ 	updateTextGrid();
+@@ -82,6 +285,15 @@ static void runSuite(const struct TestSuite* activeSuite) {
+ 		activeSuite->run();
+ 		debugprintf("END: %i/%i", *activeSuite->passes, *activeSuite->totalResults);
+ 	}
++}
++
++#ifndef BENCH_AUTORUN
++static void runSuite(const struct TestSuite* activeSuite) {
++	const char* testNameBuffer[160];
++	bool results[160];
++	int testIndex = 0;
++	int viewIndex = 0;
++	executeSuite(activeSuite);
+ 	while (1) {
+ 		memset(&textGrid[GRID_STRIDE], 0, sizeof(textGrid) - GRID_STRIDE);
+ 		scanKeys();
+@@ -153,6 +365,7 @@ static void runSuite(const struct TestSuite* activeSuite) {
+ 		VBlankIntrWait();
+ 	}
+ }
++#endif
+ 
+ void nocash_printf(const char* str) {
+ 	static const char* ID = (const char*) 0x4FFFA00;
+@@ -166,7 +379,9 @@ void nocash_printf(const char* str) {
+ 
+ __attribute__((format(printf, 1, 2)))
+ void savprintf(const char* fmt, ...) {
++#ifndef BENCH_AUTORUN
+ 	static u32 location = 0;
++#endif
+ 	char tmp[128];
+ 
+ 	va_list args;
+@@ -174,8 +389,16 @@ void savprintf(const char* fmt, ...) {
+ 	int s = vsnprintf(tmp, sizeof(tmp), fmt, args);
+ 	va_end(args);
+ 
++#ifdef BENCH_AUTORUN
++	(void) s;
++#endif
+ 	mgba_printf(MGBA_LOG_INFO, "%s", tmp);
+ 	nocash_printf(tmp);
++#ifdef BENCH_AUTORUN
++	if (strstr(tmp, "FAIL")) {
++		benchAppendMessage(tmp);
++	}
++#else
+ 
+ 	vs8* sbase = (vs8*) SRAM + location;
+ 	size_t i;
+@@ -190,13 +413,16 @@ void savprintf(const char* fmt, ...) {
+ 	sbase[s] = '\0';
+ 	location += s;
+ 	return;
++#endif
+ }
+ 
+ __attribute__((format(printf, 1, 2)))
+ int debugprintf(const char* fmt, ...) {
++#ifndef BENCH_AUTORUN
+ 	if (!isMgba) {
+ 		return 0;
+ 	}
++#endif
+ 
+ 	char tmp[128];
+ 
+@@ -205,7 +431,13 @@ int debugprintf(const char* fmt, ...) {
+ 	int s = vsnprintf(tmp, sizeof(tmp), fmt, args);
+ 	va_end(args);
+ 
++#ifdef BENCH_AUTORUN
++	if (isMgba) {
++		mgba_printf(MGBA_LOG_DEBUG, "%s", tmp);
++	}
++#else
+ 	mgba_printf(MGBA_LOG_DEBUG, "%s", tmp);
++#endif
+ 	return s;
+ }
+ 
+@@ -234,6 +466,34 @@ int main(void) {
+ 		((u8*) SRAM)[i] = 0;
+ 	}
+ 	isMgba = mgba_open();
++#ifdef BENCH_AUTORUN
++	benchBegin();
++	savprintf("Game Boy Advance Test Suite\n===");
++
++	size_t benchSuiteIndex;
++	for (benchSuiteIndex = 0; benchSuiteIndex < nSuites; ++benchSuiteIndex) {
++		activeTestInfo.suiteId = benchSuiteIndex;
++		executeSuite(suites[benchSuiteIndex]);
++		benchAppendSuite(suites[benchSuiteIndex], benchSuiteIndex);
++		activeTestInfo.suiteId = -1;
++	}
++	benchFinish();
++
++	memset(&textGrid[GRID_STRIDE], 0, sizeof(textGrid) - GRID_STRIDE);
++	clearAll();
++	strcpy(TEXT_LOC(1, 0), "Benchmark report ready");
++	snprintf(TEXT_LOC(3, 0), 31, "%lu/%lu passed",
++		(unsigned long) benchTotalPasses,
++		(unsigned long) benchTotalResults);
++	strcpy(TEXT_LOC(5, 0), "Exit core to write save");
++	updateTextGrid();
++
++	while (1) {
++		VBlankIntrWait();
++	}
++
++	return 0;
++#else
+ 	savprintf("Game Boy Advance Test Suite\n===");
+ 
+ 	int suiteIndex = 0;
+@@ -277,4 +537,5 @@ int main(void) {
+ 	}
+ 
+ 	return 0;
++#endif
+ }

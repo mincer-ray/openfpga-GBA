@@ -45,6 +45,7 @@ module sdram_pocket (
     input  wire        ch2_wr,       // Write request pulse
     input  wire [24:0] ch2_addr,     // DWORD address
     input  wire [31:0] ch2_din,      // 32-bit write data
+    input  wire  [3:0] ch2_be,       // Write byte enables, active high
     output reg  [31:0] ch2_dout,     // 32-bit read data (valid when ch2_ready=1)
     output reg         ch2_ready,    // Ch2 operation complete pulse
 
@@ -165,6 +166,7 @@ reg        ch2_rd_rq   = 0;
 reg        ch2_wr_rq   = 0;
 reg [24:0] ch2_rq_addr = 0;
 reg [31:0] ch2_rq_din  = 0;
+reg  [3:0] ch2_rq_be   = 4'hf;
 
 // ============================================================
 // Main State Machine
@@ -228,6 +230,7 @@ always @(posedge clk) begin
         ch2_wr_rq  <= 1;
         ch2_rq_addr <= ch2_addr;
         ch2_rq_din  <= ch2_din;
+        ch2_rq_be   <= ch2_be;
     end
 
     // Dequeue into processing pipeline
@@ -306,8 +309,8 @@ always @(posedge clk) begin
                 sd_ba   <= req_addr[11:10];
 
                 if (req_is_ch2 && req_is_ch2_write) begin
-                    // Ch2 write: no auto-precharge on first WRITE
-                    cas_addr <= {2'b00, 1'b0, req_addr[9:0]};
+                    // Ch2 write: mask untouched bytes; precharge after the second WRITE.
+                    cas_addr <= {~ch2_rq_be[1:0], 1'b0, req_addr[9:0]};
                 end else if (req_is_write) begin
                     // Ch1 single-word write: auto-precharge
                     cas_addr <= {2'b00, 1'b1, req_addr[9:0]};
@@ -358,7 +361,7 @@ always @(posedge clk) begin
         STATE_CH2_WR2: begin
             command     <= CMD_WRITE;
             dram_dq     <= ch2_rq_din[31:16];
-            sd_addr     <= {2'b00, 1'b1, cas_addr[9:1], 1'b1}; // Auto-precharge, column+1
+            sd_addr     <= {~ch2_rq_be[3:2], 1'b1, cas_addr[9:1], 1'b1}; // Auto-precharge, column+1
             req_pending <= 0;
             ch2_ready   <= 1;
             state       <= STATE_IDLE_5;

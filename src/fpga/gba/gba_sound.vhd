@@ -128,9 +128,11 @@ architecture arch of gba_sound is
            
 begin 
 
-   iSound_1_4_Master_Volume_RIGHT : entity work.eProcReg_gba generic map ( SOUNDCNT_L_Sound_1_4_Master_Volume_RIGHT ) port map  (clk100, gb_bus, Sound_1_4_Master_Volume_RIGHT , Sound_1_4_Master_Volume_RIGHT );  
-   iSound_1_4_Master_Volume_LEFT  : entity work.eProcReg_gba generic map ( SOUNDCNT_L_Sound_1_4_Master_Volume_LEFT  ) port map  (clk100, gb_bus, Sound_1_4_Master_Volume_LEFT  , Sound_1_4_Master_Volume_LEFT  );  
-   iSound_1_Enable_Flags_RIGHT    : entity work.eProcReg_gba generic map ( SOUNDCNT_L_Sound_1_Enable_Flags_RIGHT    ) port map  (clk100, gb_bus, Sound_1_Enable_Flags_RIGHT    , Sound_1_Enable_Flags_RIGHT    );  
+   iSound_1_4_Master_Volume_RIGHT : entity work.eProcReg_gba generic map ( SOUNDCNT_L_Sound_1_4_Master_Volume_RIGHT ) port map  (clk100, gb_bus, Sound_1_4_Master_Volume_RIGHT , Sound_1_4_Master_Volume_RIGHT );
+   iSOUNDCNT_L_Right_Reserved_Zero: entity work.eProcReg_gba generic map ( SOUNDCNT_L_Right_Reserved_Zero           ) port map  (clk100, gb_bus, "0");
+   iSound_1_4_Master_Volume_LEFT  : entity work.eProcReg_gba generic map ( SOUNDCNT_L_Sound_1_4_Master_Volume_LEFT  ) port map  (clk100, gb_bus, Sound_1_4_Master_Volume_LEFT  , Sound_1_4_Master_Volume_LEFT  );
+   iSOUNDCNT_L_Left_Reserved_Zero : entity work.eProcReg_gba generic map ( SOUNDCNT_L_Left_Reserved_Zero            ) port map  (clk100, gb_bus, "0");
+   iSound_1_Enable_Flags_RIGHT    : entity work.eProcReg_gba generic map ( SOUNDCNT_L_Sound_1_Enable_Flags_RIGHT    ) port map  (clk100, gb_bus, Sound_1_Enable_Flags_RIGHT    , Sound_1_Enable_Flags_RIGHT    );
    iSound_2_Enable_Flags_RIGHT    : entity work.eProcReg_gba generic map ( SOUNDCNT_L_Sound_2_Enable_Flags_RIGHT    ) port map  (clk100, gb_bus, Sound_2_Enable_Flags_RIGHT    , Sound_2_Enable_Flags_RIGHT    );  
    iSound_3_Enable_Flags_RIGHT    : entity work.eProcReg_gba generic map ( SOUNDCNT_L_Sound_3_Enable_Flags_RIGHT    ) port map  (clk100, gb_bus, Sound_3_Enable_Flags_RIGHT    , Sound_3_Enable_Flags_RIGHT    );  
    iSound_4_Enable_Flags_RIGHT    : entity work.eProcReg_gba generic map ( SOUNDCNT_L_Sound_4_Enable_Flags_RIGHT    ) port map  (clk100, gb_bus, Sound_4_Enable_Flags_RIGHT    , Sound_4_Enable_Flags_RIGHT    );  
@@ -543,7 +545,3 @@ begin
    
     
 end architecture;
-
-
- 
- 

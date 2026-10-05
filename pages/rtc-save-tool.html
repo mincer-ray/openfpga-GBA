@@ -1,0 +1,1507 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GBA RTC Save Tool</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f7f8;
+      --panel: #ffffff;
+      --panel-2: #eef3f5;
+      --ink: #172026;
+      --muted: #596971;
+      --line: #ccd8dd;
+      --accent: #1f6f8b;
+      --accent-dark: #145068;
+      --good: #146c43;
+      --bad: #a33a2a;
+      --warn: #856404;
+      --focus: #f4b942;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.45;
+    }
+
+    main {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 40px;
+    }
+
+    header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 18px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(1.7rem, 3vw, 2.35rem);
+      letter-spacing: 0;
+      line-height: 1.05;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: 1rem;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0;
+    }
+
+    .subhead {
+      max-width: 640px;
+      color: var(--muted);
+      font-size: 0.98rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(300px, 0.9fr) minmax(360px, 1.1fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 8px 28px rgba(23, 32, 38, 0.06);
+    }
+
+    .stack {
+      display: grid;
+      gap: 16px;
+    }
+
+    .drop {
+      display: grid;
+      gap: 10px;
+      min-height: 138px;
+      place-content: center;
+      text-align: center;
+      border: 1px dashed #94aab3;
+      border-radius: 8px;
+      background: var(--panel-2);
+      padding: 18px;
+    }
+
+    .drop.dragging {
+      border-color: var(--accent);
+      background: #e3f0f4;
+    }
+
+    input[type="file"] {
+      width: 100%;
+      max-width: 360px;
+      margin: 0 auto;
+    }
+
+    input[type="datetime-local"],
+    select {
+      width: 100%;
+      min-height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: var(--ink);
+      background: #fff;
+      font: inherit;
+    }
+
+    button {
+      min-height: 38px;
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      padding: 8px 12px;
+      color: #fff;
+      background: var(--accent);
+      font: inherit;
+      font-weight: 650;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: var(--accent-dark);
+      border-color: var(--accent-dark);
+    }
+
+    button.secondary {
+      color: var(--accent-dark);
+      background: #fff;
+    }
+
+    button.secondary:hover {
+      color: #fff;
+      background: var(--accent-dark);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      color: #8a9aa1;
+      background: #e7ecef;
+      border-color: #cbd6db;
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    label.candidate:focus-within {
+      outline: 3px solid var(--focus);
+      outline-offset: 2px;
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      background: #fbfcfd;
+      min-width: 0;
+    }
+
+    .metric dt {
+      margin: 0 0 3px;
+      color: var(--muted);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .metric dd {
+      margin: 0;
+      font-family: var(--mono);
+      overflow-wrap: anywhere;
+    }
+
+    .candidate-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .candidate {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: start;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .candidate input {
+      margin-top: 3px;
+    }
+
+    .candidate-title {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+      margin-bottom: 4px;
+      font-weight: 700;
+    }
+
+    .candidate-detail {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 0.76rem;
+      font-weight: 750;
+      border: 1px solid transparent;
+    }
+
+    .badge.good {
+      color: var(--good);
+      border-color: rgba(20, 108, 67, 0.24);
+      background: #e9f6ef;
+    }
+
+    .badge.bad {
+      color: var(--bad);
+      border-color: rgba(163, 58, 42, 0.24);
+      background: #faece9;
+    }
+
+    .badge.warn {
+      color: var(--warn);
+      border-color: rgba(133, 100, 4, 0.28);
+      background: #fff6d8;
+    }
+
+    .details {
+      display: grid;
+      gap: 12px;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .rtc-summary {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .field {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      min-width: 0;
+      background: #fbfcfd;
+    }
+
+    .field span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.74rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .field strong {
+      display: block;
+      margin-top: 2px;
+      font-family: var(--mono);
+      font-size: 1rem;
+      overflow-wrap: anywhere;
+    }
+
+    .field.good strong {
+      color: var(--good);
+    }
+
+    .field.bad strong {
+      color: var(--bad);
+    }
+
+    .field.warn strong {
+      color: var(--warn);
+    }
+
+    .hex {
+      display: block;
+      width: 100%;
+      min-height: 52px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      background: #101820;
+      color: #eaf2f6;
+      font-family: var(--mono);
+      font-size: 0.88rem;
+      overflow-wrap: anywhere;
+    }
+
+    .checks {
+      display: grid;
+      gap: 6px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .checks li {
+      border-left: 3px solid var(--line);
+      padding: 5px 8px;
+      background: #fbfcfd;
+      color: var(--muted);
+    }
+
+    .checks li.good {
+      border-color: var(--good);
+      color: var(--good);
+    }
+
+    .checks li.bad {
+      border-color: var(--bad);
+      color: var(--bad);
+    }
+
+    .checks li.warn {
+      border-color: var(--warn);
+      color: var(--warn);
+    }
+
+    .editor {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+
+    .editor label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-weight: 650;
+    }
+
+    .time-zone-status {
+      margin: -2px 0 2px;
+      color: var(--muted);
+      font-size: 0.84rem;
+    }
+
+    .notice {
+      border: 1px solid #cbd6db;
+      border-radius: 6px;
+      padding: 10px;
+      background: #fbfcfd;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .notice.bad {
+      border-color: rgba(163, 58, 42, 0.28);
+      background: #faece9;
+      color: var(--bad);
+    }
+
+    .notice.good {
+      border-color: rgba(20, 108, 67, 0.24);
+      background: #e9f6ef;
+      color: var(--good);
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @media (max-width: 850px) {
+      main {
+        width: min(100vw - 20px, 720px);
+        padding-top: 18px;
+      }
+
+      header,
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr;
+      }
+
+      .field-grid,
+      .meta {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 520px) {
+      .field-grid,
+      .meta,
+      .rtc-summary {
+        grid-template-columns: 1fr;
+      }
+
+      .candidate {
+        grid-template-columns: auto 1fr;
+      }
+
+      .candidate > .badge {
+        grid-column: 2;
+        justify-self: start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>GBA RTC Save Tool</h1>
+        <p class="subhead">Open a save, repair or remove the RTC footer, and use advanced mode when you need to inspect or manually edit the timestamp.</p>
+      </div>
+    </header>
+
+    <section class="grid" aria-label="Save editor">
+      <div class="stack">
+        <section class="panel">
+          <h2>Save File</h2>
+          <div id="drop" class="drop">
+            <p><strong>Drop a .sav here</strong></p>
+            <input id="fileInput" type="file" accept=".sav,.srm,application/octet-stream">
+          </div>
+        </section>
+
+        <section id="filePanel" class="panel hidden">
+          <h2>File</h2>
+          <dl class="meta">
+            <div class="metric">
+              <dt>Name</dt>
+              <dd id="fileName">-</dd>
+            </div>
+            <div class="metric">
+              <dt>Size</dt>
+              <dd id="fileSize">-</dd>
+            </div>
+            <div class="metric">
+              <dt>Likely Save</dt>
+              <dd id="saveKind">-</dd>
+            </div>
+            <div class="metric">
+              <dt>Selected Offset</dt>
+              <dd id="selectedOffset">-</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section id="candidatePanel" class="panel hidden">
+          <h2>RTC Candidates</h2>
+          <div id="candidateList" class="candidate-list"></div>
+        </section>
+      </div>
+
+      <div class="stack">
+        <section id="actionPanel" class="panel hidden">
+          <h2>Save Actions</h2>
+          <div class="editor">
+            <label for="timeZoneSelect">
+              Timezone
+              <select id="timeZoneSelect"></select>
+            </label>
+            <p id="timeZoneStatus" class="time-zone-status"></p>
+            <div class="button-row">
+              <button id="confirmTimeZone" type="button">Confirm Timezone</button>
+            </div>
+            <div id="confirmedActions" class="editor hidden">
+              <div id="rtcSummary" class="rtc-summary"></div>
+              <div class="button-row">
+                <button id="repairCurrent" type="button">Repair Save RTC</button>
+                <button id="stripRtc" type="button" class="secondary">Strip RTC Data</button>
+                <button id="advancedToggle" type="button" class="secondary">Advanced Mode</button>
+              </div>
+            </div>
+            <p id="actionNotice" class="notice">Load a save to repair or strip RTC data.</p>
+          </div>
+        </section>
+
+        <section id="detailsPanel" class="panel hidden">
+          <h2>Decoded RTC</h2>
+          <div id="details" class="details"></div>
+        </section>
+
+        <section id="editorPanel" class="panel hidden">
+          <h2>Advanced Patch Time</h2>
+          <div class="editor">
+            <label for="dateTimeInput">
+              Local date and time
+              <input id="dateTimeInput" type="datetime-local" step="1">
+            </label>
+            <div class="button-row">
+              <button id="setNow" type="button" class="secondary">Use Current Time</button>
+              <button id="useFooter" type="button" class="secondary">Use Selected Footer</button>
+              <button id="download" type="button">Download Patched Save</button>
+            </div>
+            <p id="patchNotice" class="notice">The original file is not changed. The patched copy is generated in your browser.</p>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    "use strict";
+
+    const RTC_BYTES = 16;
+    const KNOWN_BASES = [
+      { offset: 0x10000, label: "64K save footer" },
+      { offset: 0x20000, label: "128K save footer" }
+    ];
+
+    const state = {
+      file: null,
+      bytes: null,
+      candidates: [],
+      selectedKey: "",
+      timeZone: "",
+      timeZoneConfirmed: false,
+      advanced: false
+    };
+
+    const els = {
+      drop: document.getElementById("drop"),
+      fileInput: document.getElementById("fileInput"),
+      filePanel: document.getElementById("filePanel"),
+      fileName: document.getElementById("fileName"),
+      fileSize: document.getElementById("fileSize"),
+      saveKind: document.getElementById("saveKind"),
+      selectedOffset: document.getElementById("selectedOffset"),
+      candidatePanel: document.getElementById("candidatePanel"),
+      candidateList: document.getElementById("candidateList"),
+      actionPanel: document.getElementById("actionPanel"),
+      detailsPanel: document.getElementById("detailsPanel"),
+      details: document.getElementById("details"),
+      editorPanel: document.getElementById("editorPanel"),
+      dateTimeInput: document.getElementById("dateTimeInput"),
+      timeZoneSelect: document.getElementById("timeZoneSelect"),
+      timeZoneStatus: document.getElementById("timeZoneStatus"),
+      confirmTimeZone: document.getElementById("confirmTimeZone"),
+      confirmedActions: document.getElementById("confirmedActions"),
+      rtcSummary: document.getElementById("rtcSummary"),
+      repairCurrent: document.getElementById("repairCurrent"),
+      stripRtc: document.getElementById("stripRtc"),
+      advancedToggle: document.getElementById("advancedToggle"),
+      actionNotice: document.getElementById("actionNotice"),
+      setNow: document.getElementById("setNow"),
+      useFooter: document.getElementById("useFooter"),
+      download: document.getElementById("download"),
+      patchNotice: document.getElementById("patchNotice")
+    };
+
+    function hex(value, width) {
+      return "0x" + Number(value).toString(16).toUpperCase().padStart(width, "0");
+    }
+
+    function byteHex(bytes) {
+      return Array.from(bytes, function (byte) {
+        return byte.toString(16).toUpperCase().padStart(2, "0");
+      }).join(" ");
+    }
+
+    function formatSize(size) {
+      return size + " bytes (" + hex(size, 5) + ")";
+    }
+
+    function readU16LE(bytes, offset) {
+      return bytes[offset] | (bytes[offset + 1] << 8);
+    }
+
+    function readU32LE(bytes, offset) {
+      return (bytes[offset] |
+        (bytes[offset + 1] << 8) |
+        (bytes[offset + 2] << 16) |
+        (bytes[offset + 3] << 24)) >>> 0;
+    }
+
+    function writeU16LE(bytes, offset, value) {
+      bytes[offset] = value & 0xff;
+      bytes[offset + 1] = (value >>> 8) & 0xff;
+    }
+
+    function writeU32LE(bytes, offset, value) {
+      bytes[offset] = value & 0xff;
+      bytes[offset + 1] = (value >>> 8) & 0xff;
+      bytes[offset + 2] = (value >>> 16) & 0xff;
+      bytes[offset + 3] = (value >>> 24) & 0xff;
+    }
+
+    function isBcd(value) {
+      return ((value & 0x0f) <= 9) && (((value >> 4) & 0x0f) <= 9);
+    }
+
+    function fromBcd(value) {
+      return ((value >> 4) & 0x0f) * 10 + (value & 0x0f);
+    }
+
+    function toBcd(value) {
+      if (!Number.isInteger(value) || value < 0 || value > 99) {
+        throw new Error("Value is out of BCD range: " + value);
+      }
+      return Math.floor(value / 10) * 16 + (value % 10);
+    }
+
+    function daysInMonth(year, month) {
+      return new Date(year, month, 0).getDate();
+    }
+
+    function decodeSavedTime(savedTime) {
+      return {
+        yearRaw: Number((savedTime >> 34n) & 0xffn),
+        monthRaw: Number((savedTime >> 29n) & 0x1fn),
+        dayRaw: Number((savedTime >> 23n) & 0x3fn),
+        wday: Number((savedTime >> 20n) & 0x07n),
+        hourRaw: Number((savedTime >> 14n) & 0x3fn),
+        minuteRaw: Number((savedTime >> 7n) & 0x7fn),
+        secondRaw: Number(savedTime & 0x7fn)
+      };
+    }
+
+    function fieldsToSavedTime(fields) {
+      return (BigInt(fields.yearRaw) << 34n) |
+        (BigInt(fields.monthRaw) << 29n) |
+        (BigInt(fields.dayRaw) << 23n) |
+        (BigInt(fields.wday) << 20n) |
+        (BigInt(fields.hourRaw) << 14n) |
+        (BigInt(fields.minuteRaw) << 7n) |
+        BigInt(fields.secondRaw);
+    }
+
+    function decodeFooter(bytes, offset) {
+      const timestamp = readU32LE(bytes, offset);
+      const savedTime =
+        BigInt(readU16LE(bytes, offset + 4)) |
+        (BigInt(readU16LE(bytes, offset + 6)) << 16n) |
+        (BigInt(readU16LE(bytes, offset + 8) & 0x03ff) << 32n);
+      const fields = decodeSavedTime(savedTime);
+      const padding = bytes.slice(offset + 10, offset + RTC_BYTES);
+      return {
+        timestamp,
+        savedTime,
+        fields,
+        padding,
+        raw: bytes.slice(offset, offset + RTC_BYTES)
+      };
+    }
+
+    function validateDecoded(decoded) {
+      const f = decoded.fields;
+      const checks = [];
+
+      function add(ok, text, level) {
+        checks.push({ ok: !!ok, text: text, level: level || (ok ? "good" : "bad") });
+      }
+
+      const yearOk = isBcd(f.yearRaw);
+      const monthOk = isBcd(f.monthRaw) && fromBcd(f.monthRaw) >= 1 && fromBcd(f.monthRaw) <= 12;
+      const year = yearOk ? 2000 + fromBcd(f.yearRaw) : 2000;
+      const month = monthOk ? fromBcd(f.monthRaw) : 1;
+      const maxDay = daysInMonth(year, month);
+      const dayOk = isBcd(f.dayRaw) && fromBcd(f.dayRaw) >= 1 && fromBcd(f.dayRaw) <= maxDay;
+      const hourOk = isBcd(f.hourRaw) && fromBcd(f.hourRaw) <= 23;
+      const minuteOk = isBcd(f.minuteRaw) && fromBcd(f.minuteRaw) <= 59;
+      const secondOk = isBcd(f.secondRaw) && fromBcd(f.secondRaw) <= 59;
+      const wdayOk = f.wday <= 6;
+      const paddingOk = Array.from(decoded.padding).every(function (byte) { return byte === 0; });
+      const savedTimeZero = decoded.savedTime === 0n;
+      const timestampOk = decoded.timestamp !== 0 && decoded.timestamp !== 0xffffffff;
+
+      add(timestampOk, "Timestamp is nonzero and not erased.");
+      add(!savedTimeZero, "Packed RTC value is not zero.");
+      add(yearOk, "Year is BCD.");
+      add(monthOk, "Month is BCD 01..12.");
+      add(dayOk, "Day is valid for month.");
+      add(wdayOk, "Weekday is 0..6.");
+      add(hourOk, "Hour is BCD 00..23.");
+      add(minuteOk, "Minute is BCD 00..59.");
+      add(secondOk, "Second is BCD 00..59.");
+      add(paddingOk, "Footer padding bytes 10..15 are zero.", "warn");
+
+      const valid = checks
+        .filter(function (check) { return check.level !== "warn"; })
+        .every(function (check) { return check.ok; });
+
+      return { valid, checks };
+    }
+
+    function decodedDateParts(decoded) {
+      const f = decoded.fields;
+      if (!isBcd(f.yearRaw) || !isBcd(f.monthRaw) || !isBcd(f.dayRaw) ||
+          !isBcd(f.hourRaw) || !isBcd(f.minuteRaw) || !isBcd(f.secondRaw)) {
+        return null;
+      }
+      return {
+        year: 2000 + fromBcd(f.yearRaw),
+        month: fromBcd(f.monthRaw),
+        day: fromBcd(f.dayRaw),
+        wday: f.wday,
+        hour: fromBcd(f.hourRaw),
+        minute: fromBcd(f.minuteRaw),
+        second: fromBcd(f.secondRaw)
+      };
+    }
+
+    function encodeFooterFromDate(date, timeZone) {
+      const parts = datePartsForTimeZone(date, timeZone);
+      const year = parts.year;
+      const fields = {
+        yearRaw: toBcd(year % 100),
+        monthRaw: toBcd(parts.month),
+        dayRaw: toBcd(parts.day),
+        wday: parts.wday,
+        hourRaw: toBcd(parts.hour),
+        minuteRaw: toBcd(parts.minute),
+        secondRaw: toBcd(parts.second)
+      };
+      const timestamp = Math.floor(date.getTime() / 1000) >>> 0;
+      const savedTime = fieldsToSavedTime(fields);
+      const bytes = new Uint8Array(RTC_BYTES);
+
+      writeU32LE(bytes, 0, timestamp);
+      writeU16LE(bytes, 4, Number(savedTime & 0xffffn));
+      writeU16LE(bytes, 6, Number((savedTime >> 16n) & 0xffffn));
+      writeU16LE(bytes, 8, Number((savedTime >> 32n) & 0x03ffn));
+
+      return { bytes, timestamp, savedTime, fields };
+    }
+
+    function pad2(value) {
+      return String(value).padStart(2, "0");
+    }
+
+    function dateFieldsToUtcMs(parts) {
+      return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+    }
+
+    function weekdayForDateParts(parts) {
+      return new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay();
+    }
+
+    function makeInputValueFromParts(parts) {
+      return parts.year + "-" +
+        pad2(parts.month) + "-" +
+        pad2(parts.day) + "T" +
+        pad2(parts.hour) + ":" +
+        pad2(parts.minute) + ":" +
+        pad2(parts.second);
+    }
+
+    function browserTimeZone() {
+      if (typeof Intl === "undefined" || !Intl.DateTimeFormat) {
+        return "";
+      }
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+      } catch (error) {
+        return "";
+      }
+    }
+
+    function supportedTimeZones() {
+      if (typeof Intl === "undefined" || !Intl.supportedValuesOf) {
+        return [];
+      }
+      try {
+        return Intl.supportedValuesOf("timeZone");
+      } catch (error) {
+        return [];
+      }
+    }
+
+    function isSupportedTimeZone(timeZone) {
+      if (!timeZone || typeof Intl === "undefined" || !Intl.DateTimeFormat) {
+        return false;
+      }
+      try {
+        new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+        return true;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function datePartsForTimeZone(date, timeZone) {
+      if (timeZone && typeof Intl !== "undefined" && Intl.DateTimeFormat) {
+        const formatter = new Intl.DateTimeFormat("en-US", {
+          timeZone,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hourCycle: "h23"
+        });
+        const values = {};
+
+        formatter.formatToParts(date).forEach(function (part) {
+          if (part.type !== "literal") {
+            values[part.type] = part.value;
+          }
+        });
+
+        const parts = {
+          year: Number(values.year),
+          month: Number(values.month),
+          day: Number(values.day),
+          hour: Number(values.hour),
+          minute: Number(values.minute),
+          second: Number(values.second)
+        };
+        parts.wday = weekdayForDateParts(parts);
+        return parts;
+      }
+
+      return {
+        year: date.getFullYear(),
+        month: date.getMonth() + 1,
+        day: date.getDate(),
+        wday: date.getDay(),
+        hour: date.getHours(),
+        minute: date.getMinutes(),
+        second: date.getSeconds()
+      };
+    }
+
+    function makeZonedInputValue(date, timeZone) {
+      return makeInputValueFromParts(datePartsForTimeZone(date, timeZone));
+    }
+
+    function makeLocalInputValue(date) {
+      return makeZonedInputValue(date, "");
+    }
+
+    function parseInputFields(value) {
+      if (!value) {
+        return null;
+      }
+      const match = /^(\d{4,})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value);
+      if (!match) {
+        return null;
+      }
+
+      const parts = {
+        year: Number(match[1]),
+        month: Number(match[2]),
+        day: Number(match[3]),
+        hour: Number(match[4]),
+        minute: Number(match[5]),
+        second: match[6] === undefined ? 0 : Number(match[6])
+      };
+
+      if (parts.month < 1 || parts.month > 12 ||
+          parts.day < 1 || parts.day > daysInMonth(parts.year, parts.month) ||
+          parts.hour < 0 || parts.hour > 23 ||
+          parts.minute < 0 || parts.minute > 59 ||
+          parts.second < 0 || parts.second > 59) {
+        return null;
+      }
+
+      parts.wday = weekdayForDateParts(parts);
+      return parts;
+    }
+
+    function sameDateTimeParts(a, b) {
+      return a.year === b.year &&
+        a.month === b.month &&
+        a.day === b.day &&
+        a.hour === b.hour &&
+        a.minute === b.minute &&
+        a.second === b.second;
+    }
+
+    function dateFromPartsInTimeZone(parts, timeZone) {
+      if (!timeZone || !isSupportedTimeZone(timeZone)) {
+        return new Date(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+      }
+
+      const target = dateFieldsToUtcMs(parts);
+      let instant = target;
+
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const actual = datePartsForTimeZone(new Date(instant), timeZone);
+        const delta = target - dateFieldsToUtcMs(actual);
+        if (delta === 0 && sameDateTimeParts(actual, parts)) {
+          return new Date(instant);
+        }
+        instant += delta;
+      }
+
+      const resolved = datePartsForTimeZone(new Date(instant), timeZone);
+      return sameDateTimeParts(resolved, parts) ? new Date(instant) : null;
+    }
+
+    function parseLocalInputValue(value, timeZone) {
+      const parts = parseInputFields(value);
+      return parts ? dateFromPartsInTimeZone(parts, timeZone) : null;
+    }
+
+    function formatDateParts(parts) {
+      if (!parts) {
+        return "Invalid BCD";
+      }
+      return parts.year + "-" + pad2(parts.month) + "-" + pad2(parts.day) + " " +
+        pad2(parts.hour) + ":" + pad2(parts.minute) + ":" + pad2(parts.second) +
+        " wday " + parts.wday;
+    }
+
+    function timeZoneOffsetMinutes(date, timeZone) {
+      if (timeZone && isSupportedTimeZone(timeZone)) {
+        const parts = datePartsForTimeZone(date, timeZone);
+        return Math.round((dateFieldsToUtcMs(parts) - date.getTime()) / 60000);
+      }
+      return -date.getTimezoneOffset();
+    }
+
+    function formatUtcOffset(date, timeZone) {
+      const offset = timeZoneOffsetMinutes(date, timeZone);
+      const sign = offset >= 0 ? "+" : "-";
+      const absolute = Math.abs(offset);
+      return "UTC" + sign + pad2(Math.floor(absolute / 60)) + ":" + pad2(absolute % 60);
+    }
+
+    function formatZonedDateTime(date, timeZone) {
+      const label = timeZone || "browser local";
+      return makeZonedInputValue(date, timeZone).replace("T", " ") + " " + label + " (" + formatUtcOffset(date, timeZone) + ")";
+    }
+
+    function formatEpoch(timestamp) {
+      if (timestamp === 0 || timestamp === 0xffffffff) {
+        return "Invalid";
+      }
+      const date = new Date(timestamp * 1000);
+      return timestamp + " / " + formatZonedDateTime(date, state.timeZone);
+    }
+
+    function candidateKey(candidate) {
+      return candidate.offset + ":" + candidate.mode;
+    }
+
+    function analyzeSaveKind(size) {
+      if (size === 0x10000) return "64K save, no RTC footer";
+      if (size === 0x10010) return "64K save + RTC footer";
+      if (size === 0x20000) return "128K save, no RTC footer";
+      if (size === 0x20010) return "128K save + RTC footer";
+      if (size < RTC_BYTES) return "Too small";
+      return "Custom size";
+    }
+
+    function buildCandidates(bytes) {
+      const candidates = [];
+
+      KNOWN_BASES.forEach(function (base) {
+        if (bytes.length >= base.offset + RTC_BYTES) {
+          const decoded = decodeFooter(bytes, base.offset);
+          const validation = validateDecoded(decoded);
+          candidates.push({
+            offset: base.offset,
+            label: base.label,
+            mode: "replace",
+            decoded,
+            validation
+          });
+        } else if (bytes.length === base.offset) {
+          candidates.push({
+            offset: base.offset,
+            label: base.label,
+            mode: "append",
+            decoded: null,
+            validation: null
+          });
+        }
+      });
+
+      const endOffset = bytes.length - RTC_BYTES;
+      const knownEnd = candidates.some(function (candidate) {
+        return candidate.offset === endOffset && candidate.mode === "replace";
+      });
+      if (endOffset > 0 && !knownEnd && bytes.length > 0x10010) {
+        const decoded = decodeFooter(bytes, endOffset);
+        const validation = validateDecoded(decoded);
+        candidates.push({
+          offset: endOffset,
+          label: "End-of-file footer",
+          mode: "replace",
+          decoded,
+          validation
+        });
+      }
+
+      return candidates;
+    }
+
+    function chooseDefaultCandidate(candidates, size) {
+      const preferredOffset =
+        size === 0x20010 || size === 0x20000 ? 0x20000 :
+        size === 0x10010 || size === 0x10000 ? 0x10000 :
+        -1;
+
+      const preferred = candidates.find(function (candidate) {
+        return candidate.offset === preferredOffset;
+      });
+      if (preferred) {
+        return candidateKey(preferred);
+      }
+
+      const validAtEnd = candidates.find(function (candidate) {
+        return candidate.mode === "replace" &&
+          candidate.validation.valid &&
+          candidate.offset + RTC_BYTES === size;
+      });
+      if (validAtEnd) {
+        return candidateKey(validAtEnd);
+      }
+
+      const valid = candidates.find(function (candidate) {
+        return candidate.mode === "replace" && candidate.validation.valid;
+      });
+      return valid ? candidateKey(valid) : (candidates[0] ? candidateKey(candidates[0]) : "");
+    }
+
+    function selectedCandidate() {
+      return state.candidates.find(function (candidate) {
+        return candidateKey(candidate) === state.selectedKey;
+      }) || null;
+    }
+
+    function renderAll() {
+      const hasFile = !!state.bytes;
+      const showOptions = hasFile && state.timeZoneConfirmed;
+      els.filePanel.classList.toggle("hidden", !hasFile);
+      els.actionPanel.classList.toggle("hidden", !hasFile);
+      els.confirmedActions.classList.toggle("hidden", !showOptions);
+      els.candidatePanel.classList.toggle("hidden", !showOptions || !state.advanced);
+      els.detailsPanel.classList.toggle("hidden", !showOptions || !state.advanced);
+      els.editorPanel.classList.toggle("hidden", !showOptions || !state.advanced);
+
+      if (!hasFile) {
+        return;
+      }
+
+      const candidate = selectedCandidate();
+      els.fileName.textContent = state.file ? state.file.name : "Loaded save";
+      els.fileSize.textContent = formatSize(state.bytes.length);
+      els.saveKind.textContent = analyzeSaveKind(state.bytes.length);
+      els.selectedOffset.textContent = candidate ? hex(candidate.offset, 5) : "-";
+      els.advancedToggle.textContent = state.advanced ? "Hide Advanced" : "Advanced Mode";
+
+      if (showOptions) {
+        renderRtcSummary(candidate);
+      } else {
+        els.rtcSummary.innerHTML = "";
+      }
+
+      if (showOptions && state.advanced) {
+        renderCandidates();
+        renderDetails(candidate);
+        updatePatchNotice(candidate);
+      }
+      updateActionNotice(candidate);
+    }
+
+    function appendSummaryField(label, value, level) {
+      const field = document.createElement("div");
+      field.className = "field" + (level ? " " + level : "");
+      const name = document.createElement("span");
+      name.textContent = label;
+      const strong = document.createElement("strong");
+      strong.textContent = value;
+      field.append(name, strong);
+      els.rtcSummary.append(field);
+    }
+
+    function renderRtcSummary(candidate) {
+      els.rtcSummary.innerHTML = "";
+
+      if (!candidate) {
+        appendSummaryField("RTC Data", "No candidate", "bad");
+        appendSummaryField("Date/Time", "Not present");
+        appendSummaryField("Validation", "No RTC footer location", "bad");
+        appendSummaryField("Offset", "-");
+        return;
+      }
+
+      if (candidate.mode === "append") {
+        appendSummaryField("RTC Data", "Not present", "warn");
+        appendSummaryField("Date/Time", "Not present");
+        appendSummaryField("Validation", "No footer to validate", "warn");
+        appendSummaryField("Offset", "Will append at " + hex(candidate.offset, 5));
+        return;
+      }
+
+      const parts = decodedDateParts(candidate.decoded);
+      appendSummaryField("RTC Data", "Present", candidate.validation.valid ? "good" : "bad");
+      appendSummaryField("Date/Time", formatDateParts(parts), parts ? "" : "bad");
+      appendSummaryField("Validation", candidate.validation.valid ? "Passes" : "Fails", candidate.validation.valid ? "good" : "bad");
+      appendSummaryField("Offset", hex(candidate.offset, 5));
+    }
+
+    function renderCandidates() {
+      els.candidateList.innerHTML = "";
+
+      state.candidates.forEach(function (candidate) {
+        const key = candidateKey(candidate);
+        const label = document.createElement("label");
+        label.className = "candidate";
+
+        const input = document.createElement("input");
+        input.type = "radio";
+        input.name = "candidate";
+        input.value = key;
+        input.checked = state.selectedKey === key;
+        input.addEventListener("change", function () {
+          state.selectedKey = key;
+          renderAll();
+        });
+
+        const body = document.createElement("div");
+        const title = document.createElement("div");
+        title.className = "candidate-title";
+        title.append(document.createTextNode(candidate.label));
+
+        const offset = document.createElement("span");
+        offset.className = "badge warn";
+        offset.textContent = hex(candidate.offset, 5);
+        title.append(offset);
+
+        const detail = document.createElement("div");
+        detail.className = "candidate-detail";
+        if (candidate.mode === "append") {
+          detail.textContent = "No footer is present at this offset. Patching will append one.";
+        } else {
+          const parts = decodedDateParts(candidate.decoded);
+          detail.textContent = formatDateParts(parts) + " / " + formatEpoch(candidate.decoded.timestamp);
+        }
+
+        body.append(title, detail);
+
+        const badge = document.createElement("span");
+        if (candidate.mode === "append") {
+          badge.className = "badge warn";
+          badge.textContent = "Append";
+        } else if (candidate.validation.valid) {
+          badge.className = "badge good";
+          badge.textContent = "Valid";
+        } else {
+          badge.className = "badge bad";
+          badge.textContent = "Invalid";
+        }
+
+        label.append(input, body, badge);
+        els.candidateList.append(label);
+      });
+
+      if (!state.candidates.length) {
+        const empty = document.createElement("p");
+        empty.className = "notice bad";
+        empty.textContent = "No usable RTC footer location was found.";
+        els.candidateList.append(empty);
+      }
+    }
+
+    function renderDetails(candidate) {
+      els.details.innerHTML = "";
+
+      if (!candidate) {
+        els.details.innerHTML = '<p class="notice bad">Load a save with enough bytes for an RTC footer.</p>';
+        return;
+      }
+
+      if (candidate.mode === "append") {
+        els.details.innerHTML = '<p class="notice">This save has no RTC footer at the selected base size. Use the patch controls to append one.</p>';
+        return;
+      }
+
+      const decoded = candidate.decoded;
+      const parts = decodedDateParts(decoded);
+      const status = document.createElement("p");
+      status.className = "notice " + (candidate.validation.valid ? "good" : "bad");
+      status.textContent = candidate.validation.valid ? "RTC footer passes validation." : "RTC footer has invalid fields.";
+
+      const fields = document.createElement("div");
+      fields.className = "field-grid";
+      const items = [
+        ["Epoch", formatEpoch(decoded.timestamp)],
+        ["Packed Time", "0x" + decoded.savedTime.toString(16).toUpperCase().padStart(11, "0")],
+        ["Decoded Time", formatDateParts(parts)],
+        ["Raw Bytes", byteHex(decoded.raw)]
+      ];
+
+      items.forEach(function (item) {
+        const field = document.createElement("div");
+        field.className = "field";
+        const name = document.createElement("span");
+        name.textContent = item[0];
+        const value = document.createElement("strong");
+        value.textContent = item[1];
+        field.append(name, value);
+        fields.append(field);
+      });
+
+      const hexBlock = document.createElement("code");
+      hexBlock.className = "hex";
+      hexBlock.textContent = byteHex(decoded.raw);
+
+      const checks = document.createElement("ul");
+      checks.className = "checks";
+      candidate.validation.checks.forEach(function (check) {
+        const li = document.createElement("li");
+        li.className = check.level === "warn" ? (check.ok ? "good" : "warn") : (check.ok ? "good" : "bad");
+        li.textContent = check.text;
+        checks.append(li);
+      });
+
+      els.details.append(status, fields, hexBlock, checks);
+    }
+
+    function addTimeZoneOption(value, text) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = text;
+      els.timeZoneSelect.append(option);
+    }
+
+    function updateTimeZoneStatus() {
+      const now = new Date();
+      const label = state.timeZone || "browser local timezone";
+      els.timeZoneStatus.textContent = "Now in " + label + ": " +
+        makeZonedInputValue(now, state.timeZone).replace("T", " ") +
+        " (" + formatUtcOffset(now, state.timeZone) + ")";
+    }
+
+    function setCurrentTimeInput() {
+      els.dateTimeInput.value = makeZonedInputValue(new Date(), state.timeZone);
+      updateTimeZoneStatus();
+    }
+
+    function initializeTimeZoneControls() {
+      const detected = browserTimeZone();
+      const zones = supportedTimeZones();
+      const hasDetected = detected && isSupportedTimeZone(detected);
+
+      state.timeZone = hasDetected ? detected : "";
+      els.timeZoneSelect.innerHTML = "";
+      addTimeZoneOption(state.timeZone, hasDetected ? "Browser timezone (" + detected + ")" : "Browser local timezone");
+
+      zones.forEach(function (zone) {
+        if (zone !== state.timeZone) {
+          addTimeZoneOption(zone, zone);
+        }
+      });
+
+      els.timeZoneSelect.value = state.timeZone;
+      updateTimeZoneStatus();
+    }
+
+    function canStripRtc(candidate) {
+      return !!candidate &&
+        candidate.mode === "replace" &&
+        !!state.bytes &&
+        candidate.offset + RTC_BYTES === state.bytes.length;
+    }
+
+    function updateActionNotice(candidate) {
+      els.confirmTimeZone.disabled = !state.bytes;
+      els.repairCurrent.disabled = !state.timeZoneConfirmed || !candidate || !state.bytes;
+      els.stripRtc.disabled = !state.timeZoneConfirmed || !canStripRtc(candidate);
+      els.actionNotice.className = "notice";
+
+      if (!state.bytes) {
+        els.actionNotice.textContent = "Load a save to repair or strip RTC data.";
+      } else if (!state.timeZoneConfirmed) {
+        els.actionNotice.textContent = "Confirm the selected timezone before viewing RTC data or save actions.";
+      } else if (!candidate) {
+        els.actionNotice.className = "notice bad";
+        els.actionNotice.textContent = "No RTC footer location is available for this save.";
+      } else if (candidate.mode === "append") {
+        els.actionNotice.textContent = "Repair will append a 16-byte RTC footer at " + hex(candidate.offset, 5) + ". There is no appended RTC footer to strip.";
+      } else if (canStripRtc(candidate)) {
+        els.actionNotice.textContent = "Repair will replace the appended RTC footer at " + hex(candidate.offset, 5) + ". Strip will download a plain save without those 16 bytes.";
+      } else {
+        els.actionNotice.textContent = "Repair will replace the RTC block at " + hex(candidate.offset, 5) + ". Strip is only enabled when the selected RTC footer is appended at the end of the file.";
+      }
+    }
+
+    function updatePatchNotice(candidate) {
+      if (!candidate) {
+        els.download.disabled = true;
+        els.useFooter.disabled = true;
+        els.patchNotice.textContent = "No RTC footer location is selected.";
+        els.patchNotice.className = "notice bad";
+        return;
+      }
+
+      const date = parseLocalInputValue(els.dateTimeInput.value, state.timeZone);
+      els.download.disabled = !date;
+      els.useFooter.disabled = candidate.mode === "append" || !candidate.validation.valid;
+      els.patchNotice.className = "notice";
+      if (!date) {
+        els.patchNotice.textContent = "Enter a valid local date and time.";
+      } else if (candidate.mode === "append") {
+        els.patchNotice.textContent = "Patching will append a 16-byte RTC footer at " + hex(candidate.offset, 5) + ".";
+      } else {
+        els.patchNotice.textContent = "Patching will replace the 16-byte RTC footer at " + hex(candidate.offset, 5) + ".";
+      }
+    }
+
+    async function loadFile(file) {
+      const buffer = await file.arrayBuffer();
+      state.file = file;
+      state.bytes = new Uint8Array(buffer);
+      state.candidates = buildCandidates(state.bytes);
+      state.selectedKey = chooseDefaultCandidate(state.candidates, state.bytes.length);
+      state.timeZoneConfirmed = false;
+      state.advanced = false;
+      setCurrentTimeInput();
+      renderAll();
+    }
+
+    function useSelectedFooterTime() {
+      const candidate = selectedCandidate();
+      if (!candidate || candidate.mode === "append" || !candidate.validation.valid) {
+        return;
+      }
+      const parts = decodedDateParts(candidate.decoded);
+      if (!parts) {
+        return;
+      }
+      els.dateTimeInput.value = makeInputValueFromParts(parts);
+      updatePatchNotice(candidate);
+    }
+
+    function buildPatchedBytes(candidate, footer) {
+      const targetSize = Math.max(state.bytes.length, candidate.offset + RTC_BYTES);
+      const output = new Uint8Array(targetSize);
+      output.set(state.bytes);
+      output.set(footer, candidate.offset);
+      return output;
+    }
+
+    function outputExtension() {
+      return state.file && /\.srm$/i.test(state.file.name) ? ".srm" : ".sav";
+    }
+
+    function downloadBytes(output, suffix) {
+      const baseName = state.file && state.file.name ? state.file.name.replace(/\.(sav|srm)$/i, "") : "patched";
+      const blob = new Blob([output], { type: "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = baseName + suffix + outputExtension();
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function repairCurrentRtc() {
+      const candidate = selectedCandidate();
+      if (!state.timeZoneConfirmed || !candidate || !state.bytes) {
+        updateActionNotice(candidate);
+        return;
+      }
+
+      const footer = encodeFooterFromDate(new Date(), state.timeZone).bytes;
+      downloadBytes(buildPatchedBytes(candidate, footer), ".rtc-repaired");
+
+      els.actionNotice.className = "notice good";
+      els.actionNotice.textContent = "Repaired copy generated with the current time.";
+    }
+
+    function stripRtcData() {
+      const candidate = selectedCandidate();
+      if (!state.timeZoneConfirmed || !canStripRtc(candidate)) {
+        updateActionNotice(candidate);
+        return;
+      }
+
+      downloadBytes(state.bytes.slice(0, candidate.offset), ".rtc-stripped");
+
+      els.actionNotice.className = "notice good";
+      els.actionNotice.textContent = "Stripped copy generated without the RTC footer.";
+    }
+
+    function patchAndDownload() {
+      const candidate = selectedCandidate();
+      const date = parseLocalInputValue(els.dateTimeInput.value, state.timeZone);
+      if (!state.timeZoneConfirmed || !candidate || !date || !state.bytes) {
+        return;
+      }
+
+      const footer = encodeFooterFromDate(date, state.timeZone).bytes;
+      downloadBytes(buildPatchedBytes(candidate, footer), ".rtc-patched");
+
+      els.patchNotice.className = "notice good";
+      els.patchNotice.textContent = "Patched copy generated.";
+    }
+
+    els.fileInput.addEventListener("change", function () {
+      const file = els.fileInput.files && els.fileInput.files[0];
+      if (file) {
+        loadFile(file).catch(function (error) {
+          els.patchNotice.className = "notice bad";
+          els.patchNotice.textContent = error.message;
+        });
+      }
+    });
+
+    ["dragenter", "dragover"].forEach(function (eventName) {
+      els.drop.addEventListener(eventName, function (event) {
+        event.preventDefault();
+        els.drop.classList.add("dragging");
+      });
+    });
+
+    ["dragleave", "drop"].forEach(function (eventName) {
+      els.drop.addEventListener(eventName, function (event) {
+        event.preventDefault();
+        els.drop.classList.remove("dragging");
+      });
+    });
+
+    els.drop.addEventListener("drop", function (event) {
+      const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+      if (file) {
+        loadFile(file).catch(function (error) {
+          els.patchNotice.className = "notice bad";
+          els.patchNotice.textContent = error.message;
+        });
+      }
+    });
+
+    els.dateTimeInput.addEventListener("input", function () {
+      updatePatchNotice(selectedCandidate());
+    });
+
+    els.timeZoneSelect.addEventListener("change", function () {
+      state.timeZone = els.timeZoneSelect.value;
+      state.timeZoneConfirmed = false;
+      state.advanced = false;
+      setCurrentTimeInput();
+      renderAll();
+    });
+
+    els.confirmTimeZone.addEventListener("click", function () {
+      state.timeZoneConfirmed = true;
+      setCurrentTimeInput();
+      renderAll();
+    });
+
+    els.repairCurrent.addEventListener("click", repairCurrentRtc);
+    els.stripRtc.addEventListener("click", stripRtcData);
+    els.advancedToggle.addEventListener("click", function () {
+      state.advanced = !state.advanced;
+      renderAll();
+    });
+
+    els.setNow.addEventListener("click", function () {
+      setCurrentTimeInput();
+      updatePatchNotice(selectedCandidate());
+    });
+
+    els.useFooter.addEventListener("click", useSelectedFooterTime);
+    els.download.addEventListener("click", patchAndDownload);
+
+    initializeTimeZoneControls();
+    setCurrentTimeInput();
+  </script>
+</body>
+</html>

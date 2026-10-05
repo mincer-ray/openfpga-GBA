@@ -25,11 +25,21 @@
         "name": "Save",
         "id": 10,
         "required": false,
-        "parameters": "0x84",
+        "parameters": "0x104",
         "extensions": ["sav", "srm"],
         "nonvolatile": true,
         "address": "0x20000000",
         "size_maximum": "0x20010"
+      },
+      {
+        "name": "RTC",
+        "id": 11,
+        "required": false,
+        "parameters": "0x104",
+        "extensions": ["rtc"],
+        "nonvolatile": true,
+        "address": "0x21000000",
+        "size_exact": 16
       }
     ]
   }

@@ -18,6 +18,7 @@ entity gba_gpu_timing is
       gb_on                : in  std_logic;
       reset                : in  std_logic;
       lockspeed            : in  std_logic;
+      stable_ff_video      : in  std_logic;
       
       savestate_bus        : inout proc_bus_gb_type;
       
@@ -25,7 +26,9 @@ entity gba_gpu_timing is
                            
       new_cycles           : in  unsigned(7 downto 0);
       new_cycles_valid     : in  std_logic;
-                           
+      drawer_ready         : in  std_logic;
+      render_stall         : out std_logic := '0';
+
       IRP_HBlank           : out std_logic := '0';
       IRP_VBlank           : out std_logic := '0';
       IRP_LCDStat          : out std_logic := '0';
@@ -72,6 +75,7 @@ architecture arch of gba_gpu_timing is
    signal linecounter : unsigned(7 downto 0)  := (others => '0');
    signal cycles      : unsigned(11 downto 0) := (others => '0');
    signal drawsoon    : std_logic := '0';
+   signal render_wait : std_logic := '0';
    
    -- savestate
    signal SAVESTATE_GPU      : std_logic_vector(24 downto 0);
@@ -99,6 +103,7 @@ begin
    iREG_VCOUNT                        : entity work.eProcReg_gba generic map (VCOUNT                       ) port map  (clk100, gb_bus, REG_VCOUNT); 
    
    linecounter_drawer <= linecounter;
+   render_stall       <= render_wait;
    
    REG_VCOUNT(23 downto 16) <= std_logic_vector(linecounter);
 
@@ -144,7 +149,8 @@ begin
             REG_DISPSTAT_V_Counter_flag <= SAVESTATE_GPU(22 downto 22);
             REG_DISPSTAT_H_Blank_flag   <= SAVESTATE_GPU(23 downto 23);
             REG_DISPSTAT_V_Blank_flag   <= SAVESTATE_GPU(24 downto 24);
-            
+            render_wait                  <= '0';
+
          elsif (gb_on = '1') then
          
             -- really required?
@@ -186,30 +192,35 @@ begin
                   
                   when HBLANK =>
                      if (cycles >= 224) then -- 272
-                        cycles      <= cycles - 224;
-                        linecounter <= linecounter + 1;
-                        if ((linecounter + 1) = unsigned(REG_DISPSTAT_V_Count_Setting)) then
-                           if (REG_DISPSTAT_V_Counter_IRQ_Enable = "1") then
-                              IRP_LCDStat <= '1';
+                        if (lockspeed = '0' and stable_ff_video = '1' and drawer_ready = '0') then
+                           render_wait <= '1';
+                        else
+                           render_wait <= '0';
+                           cycles      <= cycles - 224;
+                           linecounter <= linecounter + 1;
+                           if ((linecounter + 1) = unsigned(REG_DISPSTAT_V_Count_Setting)) then
+                              if (REG_DISPSTAT_V_Counter_IRQ_Enable = "1") then
+                                 IRP_LCDStat <= '1';
+                              end if;
+                              REG_DISPSTAT_V_Counter_flag <= "1";
+                           else
+                              REG_DISPSTAT_V_Counter_flag <= "0";
                            end if;
-                           REG_DISPSTAT_V_Counter_flag <= "1";
-                        else
-                           REG_DISPSTAT_V_Counter_flag <= "0";
-                        end if;
-   
-                        REG_DISPSTAT_H_Blank_flag <= "0";
-                        if ((linecounter + 1) < 160) then
-                           gpustate     <= VISIBLE;
-                           drawsoon     <= '1';
-                           pixelpos     <= 0;
-                           line_trigger <= '1';
-                        else
-                           gpustate                  <= VBLANK;
-                           refpoint_update           <= '1';
-                           REG_DISPSTAT_V_Blank_flag <= "1";
-                           vblank_trigger            <= '1';
-                           if (REG_DISPSTAT_V_Blank_IRQ_Enable = "1") then
-                              IRP_VBlank <= '1';
+
+                           REG_DISPSTAT_H_Blank_flag <= "0";
+                           if ((linecounter + 1) < 160) then
+                              gpustate     <= VISIBLE;
+                              drawsoon     <= '1';
+                              pixelpos     <= 0;
+                              line_trigger <= '1';
+                           else
+                              gpustate                  <= VBLANK;
+                              refpoint_update           <= '1';
+                              REG_DISPSTAT_V_Blank_flag <= "1";
+                              vblank_trigger            <= '1';
+                              if (REG_DISPSTAT_V_Blank_IRQ_Enable = "1") then
+                                 IRP_VBlank <= '1';
+                              end if;
                            end if;
                         end if;
                      end if;
@@ -270,8 +281,4 @@ begin
    end process;
 
 end architecture;
-
-
-
-
 

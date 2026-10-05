@@ -78,7 +78,9 @@ package pReg_gba_sound is
     
    constant SOUNDCNT_L                               : regmap_type := (16#080#,  15,      0,        1,        0,   writeonly); -- Control Stereo/Volume/Enable   (NR50, NR51)  
    constant SOUNDCNT_L_Sound_1_4_Master_Volume_RIGHT : regmap_type := (16#080#,   2,      0,        1,        0,   readwrite); -- 0-2    (0-7)
+   constant SOUNDCNT_L_Right_Reserved_Zero           : regmap_type := (16#080#,   3,      3,        1,        0,   readonly ); -- 3      Not used, reads zero
    constant SOUNDCNT_L_Sound_1_4_Master_Volume_LEFT  : regmap_type := (16#080#,   6,      4,        1,        0,   readwrite); -- 4-6    (0-7)
+   constant SOUNDCNT_L_Left_Reserved_Zero            : regmap_type := (16#080#,   7,      7,        1,        0,   readonly ); -- 7      Not used, reads zero
    constant SOUNDCNT_L_Sound_1_Enable_Flags_RIGHT    : regmap_type := (16#080#,   8,      8,        1,        0,   readwrite); -- 8-11   (each Bit 8-11, 0=Disable, 1=Enable)
    constant SOUNDCNT_L_Sound_2_Enable_Flags_RIGHT    : regmap_type := (16#080#,   9,      9,        1,        0,   readwrite); -- 8-11   (each Bit 8-11, 0=Disable, 1=Enable)
    constant SOUNDCNT_L_Sound_3_Enable_Flags_RIGHT    : regmap_type := (16#080#,  10,     10,        1,        0,   readwrite); -- 8-11   (each Bit 8-11, 0=Disable, 1=Enable)

@@ -28,7 +28,8 @@ entity gba_gpu_drawer is
       pixel_out_y          : out   integer range 0 to 159;
       pixel_out_addr       : out   integer range 0 to 38399;
       pixel_out_data       : out   std_logic_vector(14 downto 0);
-      pixel_out_we         : out   std_logic := '0';                     
+      pixel_out_we         : out   std_logic := '0';
+      drawer_ready         : out   std_logic := '0';
                            
       linecounter          : in    unsigned(7 downto 0);
       pixelpos             : in    integer range 0 to 511;
@@ -440,6 +441,8 @@ architecture arch of gba_gpu_drawer is
    signal mosaic_ref3_y : signed(27 downto 0) := (others => '0'); 
    
 begin
+
+   drawer_ready <= '1' when drawstate = IDLE else '0';
    
    iREG_DISPCNT_BG_Mode               : entity work.eProcReg_gba generic map (DISPCNT_BG_Mode              ) port map  (clk100, gb_bus, BG_Mode                           , BG_Mode               ); 
    iREG_DISPCNT_Reserved_CGB_Mode     : entity work.eProcReg_gba generic map (DISPCNT_Reserved_CGB_Mode    ) port map  (clk100, gb_bus, REG_DISPCNT_Reserved_CGB_Mode     , REG_DISPCNT_Reserved_CGB_Mode     ); 
@@ -1314,7 +1317,9 @@ begin
          hblank_trigger_1 <= hblank_trigger;
          start_draw <= '0';
          
-         -- count and track if all lines have been drawn for fastforward mode
+         -- Track whether this rendered frame has accounted for all visible lines.
+         -- Classic fast-forward relies on retaining this map across incomplete
+         -- frames; otherwise skipped lines remain frozen in the framebuffer.
          if (vblank_trigger = '1') then
             if (linesDrawn = 160) then
                lineUpToDate <= (others => '0');
@@ -1585,8 +1590,5 @@ begin
    end process;
 
 end architecture;
-
-
-
 
 

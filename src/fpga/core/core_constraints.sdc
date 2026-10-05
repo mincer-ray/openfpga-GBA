@@ -60,6 +60,77 @@ set_output_delay -clock sdram_clk -min -0.8 \
 set_input_delay -clock sdram_clk -max 6.0 [get_ports {dram_dq[*]}]
 set_input_delay -clock sdram_clk -min 2.5 [get_ports {dram_dq[*]}]
 
+# ============================================================
+# CRAM0 Timing Constraints
+# ============================================================
+# Cellular PSRAM is used in asynchronous multiplexed-address mode:
+#   - clk_sys launches the CRAM control/address/data pins.
+#   - cram0_clk is held low.
+#   - ADV# latches address/CE after a minimum two-cycle latch phase.
+#
+# External latch requirements from the CRAM async interface:
+#   tAVS = 5 ns  (address setup before ADV# high)
+#   tCVS = 7 ns  (CE# setup before ADV# high)
+#   tAVH = 2 ns  (address hold after ADV# high)
+#
+# The controller keeps address/CE/ADV active for at least two clk_sys cycles
+# before ADV# rises, then holds address DQ for one more clk_sys cycle. These
+# constraints are FPGA-side timing budgets that keep CRAM paths visible to
+# TimeQuest; they are not a full external-memory timing model with board/package
+# delay and relative pin-to-pin analysis.
+# Budget each FPGA output path against the external requirement it participates in.
+set clk_sys_clock [get_clocks {ic|mp1|mf_pllbase_inst|sys_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
+
+set CRAM0_CLK_SYS_PERIOD_NS [get_clock_info -period $clk_sys_clock]
+set CRAM0_LATCH_CYCLES 2
+set CRAM0_ADDR_HOLD_CYCLES 1
+set CRAM0_TAVS_NS 5.0
+set CRAM0_TCVS_NS 7.0
+set CRAM0_TAVH_NS 2.0
+
+set CRAM0_ADDR_OUTPUT_MAX_NS [expr {$CRAM0_CLK_SYS_PERIOD_NS * $CRAM0_LATCH_CYCLES - $CRAM0_TAVS_NS}]
+set CRAM0_CE_OUTPUT_MAX_NS [expr {$CRAM0_CLK_SYS_PERIOD_NS * $CRAM0_LATCH_CYCLES - $CRAM0_TCVS_NS}]
+set CRAM0_ADV_OUTPUT_MAX_NS [expr {$CRAM0_CLK_SYS_PERIOD_NS * $CRAM0_ADDR_HOLD_CYCLES - $CRAM0_TAVH_NS}]
+set CRAM0_OTHER_OUTPUT_MAX_NS $CRAM0_CE_OUTPUT_MAX_NS
+
+set cram0_addr_output_ports [get_ports {cram0_a[*] cram0_dq[*]}]
+set cram0_ce_output_ports [get_ports {cram0_ce0_n cram0_ce1_n}]
+set cram0_adv_output_port [get_ports {cram0_adv_n}]
+set cram0_other_output_ports [get_ports {cram0_clk cram0_cre cram0_lb_n cram0_oe_n cram0_ub_n cram0_we_n}]
+set cram0_output_ports [get_ports {cram0_a[*] cram0_adv_n cram0_ce0_n cram0_ce1_n cram0_clk cram0_cre cram0_dq[*] cram0_lb_n cram0_oe_n cram0_ub_n cram0_we_n}]
+set cram0_input_ports [get_ports {cram0_dq[*] cram0_wait}]
+
+set_max_delay $CRAM0_ADDR_OUTPUT_MAX_NS -from $clk_sys_clock -to $cram0_addr_output_ports
+set_max_delay $CRAM0_CE_OUTPUT_MAX_NS -from $clk_sys_clock -to $cram0_ce_output_ports
+set_max_delay $CRAM0_ADV_OUTPUT_MAX_NS -from $clk_sys_clock -to $cram0_adv_output_port
+set_max_delay $CRAM0_OTHER_OUTPUT_MAX_NS -from $clk_sys_clock -to $cram0_other_output_ports
+set_min_delay 0.000 -from $clk_sys_clock -to $cram0_output_ports
+
+# Read data is sampled by clk_sys after the controller's async access wait.
+# Keep the FPGA-side input path bounded to one clk_sys cycle.
+set_max_delay $CRAM0_CLK_SYS_PERIOD_NS -from $cram0_input_ports -to $clk_sys_clock
+set_min_delay 0.000 -from $cram0_input_ports -to $clk_sys_clock
+
+# Non-SDRAM top-level I/O timing coverage:
+# These APF/platform interfaces are not signed off with external setup/hold
+# delays here. They are either protocol/wait-state timed, source-synchronous
+# to fixed platform wiring, or handled by the APF bridge logic. Marking them
+# false path keeps TimeQuest's "fully constrained" check focused on the paths
+# this core actually constrains instead of reporting intentionally unmanaged
+# board-level I/O.
+set_false_path -from [get_ports { \
+  bridge_1wire bridge_spimiso bridge_spimosi bridge_spiss \
+  port_tran_sck port_tran_sd port_tran_si port_tran_so \
+}]
+
+set_false_path -to [get_ports { \
+  bridge_1wire bridge_spimiso bridge_spimosi \
+  port_tran_sck port_tran_sck_dir port_tran_sd port_tran_sd_dir \
+  port_tran_si port_tran_si_dir port_tran_so port_tran_so_dir \
+  scal_auddac scal_audlrck scal_audmclk scal_clk scal_de scal_hs scal_skip \
+  scal_vid[*] scal_vs \
+}]
+
 # Multicycle path for SDRAM read capture:
 # With ~248° phase (6831 ps), the sdram_clk edge is ~6.8 ns after sys_clk.
 # The next sys_clk edge is only ~3.1 ns later (9934 - 6831 ps), which is

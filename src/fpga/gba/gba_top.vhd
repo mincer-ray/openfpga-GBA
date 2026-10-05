@@ -24,6 +24,7 @@ entity gba_top is
       -- settings                 
       GBA_on                : in     std_logic;  -- switching from off to on = reset
       GBA_lockspeed         : in     std_logic;  -- 1 = 100% speed, 0 = max speed
+      GBA_stable_ff_video   : in     std_logic;  -- 1 = hold HBlank in fast forward until drawer is idle
       GBA_cputurbo          : in     std_logic;  -- 1 = cpu free running, all other 16 mhz
       GBA_flash_1m          : in     std_logic;  -- 1 when string "FLASH1M_V" is anywhere in gamepak
       CyclePrecalc          : in     std_logic_vector(15 downto 0); -- 100 seems to be ok to keep fullspeed for all games
@@ -62,6 +63,7 @@ entity gba_top is
       bus_out_Adr           : out    std_logic_vector(25 downto 0); -- all addresses are DWORD addresses!
       bus_out_rnw           : out    std_logic;                     -- read = 1, write = 0
       bus_out_ena           : out    std_logic;                     -- one cycle high for each action
+      bus_out_be            : out    std_logic_vector(3 downto 0); -- EWRAM write byte enables
       bus_out_done          : in     std_logic;                     -- should be one cycle high when write is done or read value is valid
       -- savestate           
       SAVE_out_Din          : out    std_logic_vector(63 downto 0); -- data read from savestate
@@ -95,7 +97,22 @@ entity gba_top is
       KeyR                  : in     std_logic;
       KeyL                  : in     std_logic;
       -- AnalogTiltX/Y and Rumble removed (solar/gyro/tilt/rumble stripped)
-      -- debug interface          
+      -- Link cable I/O. Each physical pin has one centrally selected value/OE
+      -- pair plus feedback from the pin, shared by every serial mode.
+      serial_so_out         : out    std_logic;
+      serial_so_oe          : out    std_logic;
+      serial_so_in          : in     std_logic;
+      serial_si_out         : out    std_logic;
+      serial_si_oe          : out    std_logic;
+      serial_si_in          : in     std_logic;
+      serial_sd_out         : out    std_logic;
+      serial_sd_oe          : out    std_logic;
+      serial_sd_in          : in     std_logic;
+      serial_sc_out         : out    std_logic;
+      serial_sc_oe          : out    std_logic;
+      serial_sc_in          : in     std_logic;
+      serial_link_active    : out    std_logic;
+      -- debug interface
       GBA_BusAddr           : in     std_logic_vector(27 downto 0);
       GBA_BusRnW            : in     std_logic;
       GBA_BusACC            : in     std_logic_vector(1 downto 0);
@@ -116,14 +133,14 @@ entity gba_top is
       debug_cpu_mixed       : out    std_logic_vector(31 downto 0);
       debug_irq             : out    std_logic_vector(31 downto 0);
       debug_dma             : out    std_logic_vector(31 downto 0);
-      debug_mem             : out    std_logic_vector(31 downto 0)  
+      debug_mem             : out    std_logic_vector(31 downto 0)
    );
 end entity;
 
 architecture arch of gba_top is
 
    constant SPEEDDIV    : integer := 6;
-   constant DEBUG_NOCPU : std_logic := '0';  
+   constant DEBUG_NOCPU : std_logic := '0';
 
    -- debug
    signal debug_bus_active : std_logic := '0';
@@ -198,7 +215,8 @@ architecture arch of gba_top is
    signal VRAM_Hi_be           : std_logic_vector(3 downto 0);
    signal vram_blocked         : std_logic;
    signal vram_cycle           : std_logic;
-                               
+   signal gpu_render_stall     : std_logic := '0';
+
    signal OAMRAM_PROC_addr     : integer range 0 to 255;
    signal OAMRAM_PROC_datain   : std_logic_vector(31 downto 0);
    signal OAMRAM_PROC_dataout  : std_logic_vector(31 downto 0);
@@ -298,7 +316,9 @@ architecture arch of gba_top is
    signal IRP_LCDStat : std_logic;
    signal IRP_Timer   : std_logic_vector(3 downto 0);
    signal IRP_DMA     : std_logic_vector(3 downto 0);
+   signal IRP_Serial  : std_logic;
    signal IRP_Joypad  : std_logic;
+   signal serial_abort_link : std_logic;
    -- signal IRP_Gamepak : std_logic; -- not implemented
    
    signal cycles_ahead    : integer range 0 to 131071 := 0;
@@ -307,12 +327,12 @@ architecture arch of gba_top is
    signal new_exact_cycle : std_logic := '0';
    signal CyclesVsync     : unsigned(31 downto 0) := (others => '0');
    signal bench_slow      : integer range 0 to 1685375 := 0;
-   
-   
 begin 
 
    -- dummy modules
    igba_reservedregs : entity work.gba_reservedregs port map ( clk100, gb_bus);
+
+   serial_abort_link <= loading_savestate or not GBA_on;
    
    igba_serial : entity work.gba_serial
    port map
@@ -321,7 +341,22 @@ begin
       gb_bus           => gb_bus,
       new_cycles       => new_cycles,
       new_cycles_valid => new_cycles_valid,
-      IRP_Serial       => open
+      new_exact_cycle  => new_exact_cycle,
+      serial_abort     => serial_abort_link,
+      IRP_Serial       => IRP_Serial,
+      serial_link_active => serial_link_active,
+      serial_so_out => serial_so_out,
+      serial_so_oe  => serial_so_oe,
+      serial_so_in  => serial_so_in,
+      serial_si_out => serial_si_out,
+      serial_si_oe  => serial_si_oe,
+      serial_si_in  => serial_si_in,
+      serial_sd_out => serial_sd_out,
+      serial_sd_oe  => serial_sd_oe,
+      serial_sd_in  => serial_sd_in,
+      serial_sc_out => serial_sc_out,
+      serial_sc_oe  => serial_sc_oe,
+      serial_sc_in  => serial_sc_in
    );
 
    -- real modules
@@ -529,6 +564,7 @@ begin
       bus_out_rnw          => bus_out_rnw,  
       bus_out_ena          => bus_out_ena,  
       bus_out_done         => bus_out_done,
+      bus_out_be           => bus_out_be,
       
       gb_bus_out           => gb_bus,
       
@@ -707,6 +743,7 @@ begin
       gb_bus               => gb_bus,
 
       lockspeed            => GBA_lockspeed,
+      stable_ff_video      => GBA_stable_ff_video,
       maxpixels            => maxpixels,
 
       bitmapdrawmode       => bitmapdrawmode,
@@ -715,9 +752,10 @@ begin
       pixel_out_y          => pixel_out_y,
       pixel_out_addr       => pixel_out_addr,
       pixel_out_data       => pixel_out_data,
-      pixel_out_we         => pixel_out_we,  
-      
-      new_cycles           => new_cycles,      
+      pixel_out_we         => pixel_out_we,
+      render_stall         => gpu_render_stall,
+
+      new_cycles           => new_cycles,
       new_cycles_valid     => new_cycles_valid,
               
       IRP_HBlank           => IRP_HBlank,
@@ -757,7 +795,7 @@ begin
    
       DISPSTAT_debug       => DISPSTAT_debug       
    );
-   
+
    igba_timer : entity work.gba_timer
    generic map
    (
@@ -873,9 +911,9 @@ begin
          gbaon <= GBA_on;
    
          if (reset = '1') then -- reset
-   
+
             IRPFLags <= SAVESTATE_IRP;
-   
+
          elsif (gbaon = '1') then
          
             if (IF_written = '1') then
@@ -889,7 +927,7 @@ begin
             if (IRP_Timer(1) = '1') then IRPFLags( 4) <= '1'; end if;
             if (IRP_Timer(2) = '1') then IRPFLags( 5) <= '1'; end if;
             if (IRP_Timer(3) = '1') then IRPFLags( 6) <= '1'; end if;
-            -- IRP_Serial removed (no link cable on Pocket)
+            if (IRP_Serial = '1')   then IRPFLags( 7) <= '1'; end if;
             if (IRP_DMA(0) = '1')   then IRPFLags( 8) <= '1'; end if;
             if (IRP_DMA(1) = '1')   then IRPFLags( 9) <= '1'; end if;
             if (IRP_DMA(2) = '1')   then IRPFLags(10) <= '1'; end if;
@@ -944,9 +982,10 @@ begin
          else
             cycles_ahead <= 0;
          end if;
-         
+
          gba_step <= '0';
          if (DEBUG_NOCPU = '0' and sleep_savestate = '0' and sleep_external = '0' and
+            gpu_render_stall = '0' and
             (GBA_lockspeed = '0' or GBA_cputurbo = '1' or cycles_ahead < unsigned(CyclePrecalc))) then
             gba_step <= '1';
          end if;
@@ -977,8 +1016,3 @@ begin
    
 
 end architecture;
-
-
-
-
-

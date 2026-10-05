@@ -1,12 +1,12 @@
-// video_adapter.sv — GBA framebuffer + raster scan generator for Analogue Pocket
+// video_adapter.sv - GBA framebuffer + raster scan generator for Analogue Pocket
 //
 // The GBA GPU writes pixels at arbitrary addresses into a 240x160 framebuffer.
 // This module stores those writes in BRAM and reads them out in raster scan order
 // with proper sync timing for the Pocket's scaler (Aristotle).
 //
 // Clocking:
-//   clk_sys (~100.66 MHz) — GPU framebuffer writes
-//   clk_vid (~8.39 MHz)   — Raster scan, video output (= video_rgb_clock)
+//   clk_sys (~100.66 MHz) - GPU framebuffer writes
+//   clk_vid (~8.39 MHz)   - Raster scan, video output (= video_rgb_clock)
 //
 // The raster scan advances on vid_ce pulses (clk_vid/2 = 4.194304 MHz = exact
 // GBA dot clock). video_skip gates the scaler to only process vid_ce cycles,
@@ -17,9 +17,9 @@
 //          Frame rate: 4,194,304 / (308 x 228) = 59.7275 Hz
 
 module video_adapter (
-    input  wire        clk_sys,       // ~100.66 MHz — GPU write domain
-    input  wire        clk_vid,       // ~8.39 MHz — video output domain
-    input  wire        reset,         // Active high — hold until PLL locked
+    input  wire        clk_sys,       // ~100.66 MHz - GPU write domain
+    input  wire        clk_vid,       // ~8.39 MHz - video output domain
+    input  wire        reset,         // Active high - hold until PLL locked
 
     // GBA GPU framebuffer write interface (clk_sys domain)
     input  wire [15:0] pixel_addr,    // 0-38399 (linear: row*240 + col)
@@ -35,23 +35,25 @@ module video_adapter (
 );
 
     // === Raster Scan Timing Parameters ===
-    localparam H_ACTIVE = 240;
-    localparam H_FP     = 10;     // Front porch
-    localparam H_SYNC   = 20;     // Sync pulse width
-    localparam H_BP     = 38;     // Back porch
-    localparam H_TOTAL  = 308;    // 240 + 10 + 20 + 38
+    localparam int unsigned H_ACTIVE = 240;
+    localparam int unsigned H_FP     = 10;
+    localparam int unsigned H_SYNC   = 20;
+    localparam int unsigned H_BP     = 38;
+    localparam int unsigned H_TOTAL  = H_ACTIVE + H_FP + H_SYNC + H_BP;
 
-    localparam V_ACTIVE = 160;
-    localparam V_FP     = 5;
-    localparam V_SYNC   = 5;
-    localparam V_BP     = 58;
-    localparam V_TOTAL  = 228;    // 160 + 5 + 5 + 58
+    localparam int unsigned V_ACTIVE = 160;
+    localparam int unsigned V_FP     = 5;
+    localparam int unsigned V_SYNC   = 5;
+    localparam int unsigned V_BP     = 58;
+    localparam int unsigned V_TOTAL  = V_ACTIVE + V_FP + V_SYNC + V_BP;
+
+    localparam int unsigned FB_PIXELS = H_ACTIVE * V_ACTIVE;
 
     // === Framebuffer (dual-clock BRAM) ===
     // 38,400 x 18-bit ~ 86 KB ~ 30 M10K blocks
     // Port A (clk_sys): GPU writes at arbitrary addresses
     // Port B (clk_vid): Raster scan reads linearly
-    reg [17:0] framebuffer [0:38399];
+    reg [17:0] framebuffer [0:FB_PIXELS - 1];
 
     // Port A: GPU write (clk_sys domain)
     always @(posedge clk_sys) begin
@@ -90,10 +92,10 @@ module video_adapter (
     end
 
     // === Active Area & Sync Region Detection ===
-    wire active    = (h_count < H_ACTIVE) & (v_count < V_ACTIVE);
-    wire hs_region = (h_count >= H_ACTIVE + H_FP) &
+    wire active    = (h_count < H_ACTIVE) && (v_count < V_ACTIVE);
+    wire hs_region = (h_count >= H_ACTIVE + H_FP) &&
                      (h_count <  H_ACTIVE + H_FP + H_SYNC);
-    wire vs_region = (v_count >= V_ACTIVE + V_FP) &
+    wire vs_region = (v_count >= V_ACTIVE + V_FP) &&
                      (v_count <  V_ACTIVE + V_FP + V_SYNC);
 
     // === Port B: Framebuffer Read (clk_vid domain) ===
@@ -113,24 +115,19 @@ module video_adapter (
 
     // === Output Pipeline (2-stage, clk_vid domain) ===
 
-    // Stage 1: delay active/sync by 1 clk_vid cycle to match BRAM latency
     reg active_d1;
-    reg hs_d1, vs_d1;
-    reg hs_d2, vs_d2;
+    reg [1:0] hs_pipe;
+    reg [1:0] vs_pipe;
 
     always @(posedge clk_vid) begin
         if (reset) begin
             active_d1 <= 0;
-            hs_d1 <= 0;
-            vs_d1 <= 0;
-            hs_d2 <= 0;
-            vs_d2 <= 0;
+            hs_pipe   <= 2'b00;
+            vs_pipe   <= 2'b00;
         end else begin
             active_d1 <= active;
-            hs_d1     <= hs_region;
-            vs_d1     <= vs_region;
-            hs_d2     <= hs_d1;
-            vs_d2     <= vs_d1;
+            hs_pipe   <= {hs_pipe[0], hs_region};
+            vs_pipe   <= {vs_pipe[0], vs_region};
         end
     end
 
@@ -145,8 +142,8 @@ module video_adapter (
         end else begin
             video_rgb  <= active_d1 ? {r8, g8, b8} : 24'd0;
             video_de   <= active_d1;
-            video_hs   <= hs_d1 & ~hs_d2;    // Rising edge -> single clk_vid pulse
-            video_vs   <= vs_d1 & ~vs_d2;    // Rising edge -> single clk_vid pulse
+            video_hs   <= hs_pipe[0] & ~hs_pipe[1];
+            video_vs   <= vs_pipe[0] & ~vs_pipe[1];
             video_skip <= ~vid_ce;
         end
     end
