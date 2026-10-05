@@ -239,32 +239,43 @@ assign bridge_endian_little = 0;
 //   bank0[5]   = /RD
 //   bank0[6]   = /WR
 //   bank0[7]   = PHI
-// Tick mode: each AD1 toggle latched on /WR rising edge produces a brief
-// motor impulse. Stacking impulses at ~141 Hz (ERM-friendly) gives a
-// continuous tactile rumble while cart_rumble is held high.
+// Tick mode: the actuator moves on each AD1 change latched by /WR rising
+// edge; holding AD1 steady does nothing. Timing follows budude2's
+// openfpga-GBC rumbler.sv (HW-verified with the same pak), rescaled from
+// 33.554 MHz to clk_74a: flip AD1, 268 ns setup, 268 ns /WR low, repeat
+// every 2.54 ms (~394 flips/s, ~197 Hz on AD1).
 
 wire cart_rumble;                    // from gba_top, clk_sys domain
 wire cart_rumble_74;                 // synced to clk_74a
 synch_3 cart_rumble_sync(cart_rumble, cart_rumble_74, clk_74a);
 
-// 74.25 MHz / 2^19 ≈ 141 Hz square wave on AD1 when rumble enabled.
-// AD1 gated by cart_rumble so motor stops cleanly during game-PWM "off"
-// phases (Drill Dozer varies intensity by software-PWMing GPIO bit 3).
-// Bus is always driven so /WR pulses always latch a definite AD1 value —
-// no risk of motor getting stuck ON when cart_rumble drops mid-toggle.
-reg [18:0] rumble_cnt = 19'd0;
+localparam [17:0] RUMBLE_WR_START = 18'd20;      // 268 ns AD1 setup
+localparam [17:0] RUMBLE_WR_END   = 18'd40;      // 268 ns /WR low
+localparam [17:0] RUMBLE_PERIOD   = 18'd188560;  // 2.540 ms per flip
+
+// AD1 flips once per period while cart_rumble is high (toggle, not gate),
+// so any game "on" pulse, however short, produces at least one flip and
+// game software-PWM (Drill Dozer GPIO3) can't alias against a fixed
+// carrier. When idle, writes stop and AD1 holds its last value.
+reg [17:0] rumble_cnt = 18'd0;       // 0 = idle
 reg        rumble_ad1 = 1'b0;
 reg        rumble_wr_n = 1'b1;
 
 always @(posedge clk_74a) begin
-    rumble_cnt <= rumble_cnt + 19'd1;
-    rumble_ad1 <= cart_rumble_74 & rumble_cnt[18];
-    rumble_wr_n <= ~(rumble_cnt[17:4] == 14'd0);
+    if (rumble_cnt == 18'd0 || rumble_cnt == RUMBLE_PERIOD - 18'd1) begin
+        if (cart_rumble_74) begin
+            rumble_ad1 <= ~rumble_ad1;
+            rumble_cnt <= 18'd1;
+        end else begin
+            rumble_cnt <= 18'd0;
+        end
+    end else begin
+        rumble_cnt <= rumble_cnt + 18'd1;
+    end
+    rumble_wr_n <= ~(rumble_cnt >= RUMBLE_WR_START && rumble_cnt < RUMBLE_WR_END);
 end
 
-// AD1 = rumble_ad1 (tick), AD0 = 0, AD7..2 = 0
-// Always drive the cart bus so motor state always tracks cart_rumble.
-// AD1 = rumble_ad1 (tick toggle gated by cart_rumble), AD0 = 0, others = 0.
+// AD1 = rumble_ad1 (toggled tick), AD0 = 0, AD7..2 = 0; bus always driven.
 assign cart_tran_bank3     = {6'b0, rumble_ad1, 1'b0};
 assign cart_tran_bank3_dir = 1'b1;
 assign cart_tran_bank2     = 8'h00;
