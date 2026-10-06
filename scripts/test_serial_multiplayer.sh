@@ -28,9 +28,6 @@ ghdl -a --std=08 \
   "$PROJECT_DIR/src/fpga/gba/gba_serial_normal.vhd" \
   "$PROJECT_DIR/src/fpga/gba/gba_serial_joybus.vhd" \
   "$PROJECT_DIR/src/fpga/gba/gba_serial.vhd" \
-  "$PROJECT_DIR/tests/tb_gba_serial_multiplayer.vhd" \
-  "$PROJECT_DIR/tests/tb_gba_serial_multiplayer_peer.vhd"
-ghdl -e --std=08 tb_gba_serial_multiplayer
-ghdl -r --std=08 tb_gba_serial_multiplayer --assert-level=error
-ghdl -e --std=08 tb_gba_serial_multiplayer_peer
-ghdl -r --std=08 tb_gba_serial_multiplayer_peer --assert-level=error
+  "$PROJECT_DIR/tests/tb_gba_serial_multiplayer_hardware.vhd"
+ghdl -e --std=08 tb_gba_serial_multiplayer_hardware
+ghdl -r --std=08 tb_gba_serial_multiplayer_hardware --assert-level=error
