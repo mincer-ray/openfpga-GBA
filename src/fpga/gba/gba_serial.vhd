@@ -596,9 +596,18 @@ begin
 
          -- Synchronize external inputs
          so_sync  <= so_sync(1 downto 0) & serial_so_in;
+         -- SC is filtered in every mode (Normal slave counts its edges). SI
+         -- and SD are filtered only in Multi: the 2 MHz Normal master samples
+         -- SI one native tick after its rising SC edge, and the filter delay
+         -- would move that sample ahead of the wireless adapter's data.
          sc_sync  <= sc_sync(1 downto 0) & pin_clean(2);
-         sd_sync  <= sd_sync(1 downto 0) & pin_clean(1);
-         si_sync  <= si_sync(1 downto 0) & pin_clean(0);
+         if (serial_mode = SERIAL_MULTI) then
+            sd_sync  <= sd_sync(1 downto 0) & pin_clean(1);
+            si_sync  <= si_sync(1 downto 0) & pin_clean(0);
+         else
+            sd_sync  <= sd_sync(1 downto 0) & serial_sd_in;
+            si_sync  <= si_sync(1 downto 0) & serial_si_in;
+         end if;
 
          if (multi_mode = '0') then
             multi_is_parent         <= '0';
