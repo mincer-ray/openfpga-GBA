@@ -230,15 +230,60 @@ assign port_ir_rx_disable = 1;
 // bridge endianness
 assign bridge_endian_little = 0;
 
-// cart is unused, so set all level translators accordingly
-// directions are 0:IN, 1:OUT
-assign cart_tran_bank3 = 8'hzz;
-assign cart_tran_bank3_dir = 1'b0;
-assign cart_tran_bank2 = 8'hzz;
-assign cart_tran_bank2_dir = 1'b0;
-assign cart_tran_bank1 = 8'hzz;
-assign cart_tran_bank1_dir = 1'b0;
-assign cart_tran_bank0 = 4'hf;
+// ---- DS Rumble Pak driver (cart slot, AD1 tick-mode protocol) ----
+// Pin map (per Analogizer spec, verified):
+//   bank3[7:0] = AD[7:0]   ← bank3[1] = AD1 (tick)
+//   bank2[7:0] = AD[15:8]
+//   bank1[7:0] = A[23:16]
+//   bank0[4]   = /CS
+//   bank0[5]   = /RD
+//   bank0[6]   = /WR
+//   bank0[7]   = PHI
+// Tick mode: the actuator moves on each AD1 change latched by /WR rising
+// edge; holding AD1 steady does nothing. Timing follows budude2's
+// openfpga-GBC rumbler.sv (HW-verified with the same pak), rescaled from
+// 33.554 MHz to clk_74a: flip AD1, 268 ns setup, 268 ns /WR low, repeat
+// every 2.54 ms (~394 flips/s, ~197 Hz on AD1).
+
+wire cart_rumble;                    // from gba_top, clk_sys domain
+wire cart_rumble_74;                 // synced to clk_74a
+synch_3 cart_rumble_sync(cart_rumble, cart_rumble_74, clk_74a);
+
+localparam [17:0] RUMBLE_WR_START = 18'd20;      // 268 ns AD1 setup
+localparam [17:0] RUMBLE_WR_END   = 18'd40;      // 268 ns /WR low
+localparam [17:0] RUMBLE_PERIOD   = 18'd188560;  // 2.540 ms per flip
+
+// AD1 flips once per period while cart_rumble is high (toggle, not gate),
+// so any game "on" pulse, however short, produces at least one flip and
+// game software-PWM (Drill Dozer GPIO3) can't alias against a fixed
+// carrier. When idle, writes stop and AD1 holds its last value.
+reg [17:0] rumble_cnt = 18'd0;       // 0 = idle
+reg        rumble_ad1 = 1'b0;
+reg        rumble_wr_n = 1'b1;
+
+always @(posedge clk_74a) begin
+    if (rumble_cnt == 18'd0 || rumble_cnt == RUMBLE_PERIOD - 18'd1) begin
+        if (cart_rumble_74) begin
+            rumble_ad1 <= ~rumble_ad1;
+            rumble_cnt <= 18'd1;
+        end else begin
+            rumble_cnt <= 18'd0;
+        end
+    end else begin
+        rumble_cnt <= rumble_cnt + 18'd1;
+    end
+    rumble_wr_n <= ~(rumble_cnt >= RUMBLE_WR_START && rumble_cnt < RUMBLE_WR_END);
+end
+
+// AD1 = rumble_ad1 (toggled tick), AD0 = 0, AD7..2 = 0; bus always driven.
+assign cart_tran_bank3     = {6'b0, rumble_ad1, 1'b0};
+assign cart_tran_bank3_dir = 1'b1;
+assign cart_tran_bank2     = 8'h00;
+assign cart_tran_bank2_dir = 1'b1;
+assign cart_tran_bank1     = 8'h00;
+assign cart_tran_bank1_dir = 1'b1;
+// bank0[7]=PHI=0, [6]=/WR (pulsed), [5]=/RD=1, [4]=/CS=0 active
+assign cart_tran_bank0     = {1'b0, rumble_wr_n, 1'b1, 1'b0};
 assign cart_tran_bank0_dir = 1'b1;
 assign cart_tran_pin30 = 1'b0;
 assign cart_tran_pin30_dir = 1'bz;
@@ -1638,7 +1683,7 @@ gba_top #(
     .load_state          ( ss_load ),
     .maxpixels           ( quirk_sprite ),
     .specialmodule       ( quirk_gpio | force_rtc_s ),
-    // solar/tilt/rumble removed to save ALMs
+    .Rumble              ( cart_rumble ),
     .savestate_number    ( 0 ),
     // RTC
     .RTC_timestampNew    ( rtc_new_s ),
