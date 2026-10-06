@@ -35,10 +35,7 @@ entity gba_serial is
       serial_sd_in      : in  std_logic;
       serial_sc_out     : out std_logic := '0';
       serial_sc_oe      : out std_logic := '0';
-      serial_sc_in      : in  std_logic;
-
-      -- 24 x 16-bit debug words for the on-screen link overlay.
-      serial_debug      : out std_logic_vector(383 downto 0)
+      serial_sc_in      : in  std_logic
    );
 end entity;
 
@@ -169,7 +166,6 @@ architecture arch of gba_serial is
    signal pin_raw          : pin_raw_array := (others => (others => '1'));
    signal pin_hold         : pin_hold_array := (others => 0);
    signal pin_clean        : std_logic_vector(2 downto 0) := (others => '1');
-   signal pin_glitch       : std_logic_vector(2 downto 0) := (others => '0');
    signal si_fall          : std_logic;
 
    -- Normal 8/32-bit serial engine.
@@ -244,18 +240,7 @@ architecture arch of gba_serial is
    -- guard so host-controlled fast-forward cannot race an accessory timeout.
    signal link_guard_counter : unsigned(21 downto 0) := (others => '0');
 
-   -- Debug overlay counters (see serial_debug word map below).
-   signal irp_serial_i     : std_logic := '0';
-   type dbg_array is array (0 to 23) of unsigned(15 downto 0);
-   signal dbg              : dbg_array := (others => (others => '0'));
-   signal dbg_err_prev     : std_logic := '0';
-   signal dbg_frame_ticks  : unsigned(15 downto 0) := (others => '0');
-   signal dbg_heartbeat    : unsigned(31 downto 0) := (others => '0');
-   signal dbg_active_prev  : std_logic := '0';
-
 begin
-
-   IRP_Serial <= irp_serial_i;
 
    -- SIODATA32 at 0x120 (32-bit) — also serves SIOMULTI0 (lower 16) and SIOMULTI1 (upper 16)
    iSIODATA32   : entity work.eProcReg_gba generic map (SIODATA32  ) port map  (clk100, gb_bus, SIODATA32_READBACK_BUS, REG_SIODATA32, SIODATA32_written);
@@ -572,11 +557,7 @@ begin
          pin_raw(1) <= pin_raw(1)(0) & serial_sd_in;
          pin_raw(2) <= pin_raw(2)(0) & serial_sc_in;
          for i in 0 to 2 loop
-            pin_glitch(i) <= '0';
             if (pin_raw(i)(1) = pin_clean(i)) then
-               if (pin_hold(i) /= 0) then
-                  pin_glitch(i) <= '1';
-               end if;
                pin_hold(i) <= 0;
             elsif (pin_hold(i) = PIN_FILTER - 1) then
                pin_clean(i) <= pin_raw(i)(1);
@@ -592,7 +573,7 @@ begin
    begin
       if rising_edge(clk100) then
 
-         irp_serial_i <= '0';
+         IRP_Serial <= '0';
 
          -- Synchronize external inputs
          so_sync  <= so_sync(1 downto 0) & serial_so_in;
@@ -721,7 +702,7 @@ begin
                if (REG_SIOCNT(14) = '1' and
                    multi_child_finish_ok = '1' and
                    multi_si_seen_low = '1') then
-                  irp_serial_i <= '1';
+                  IRP_Serial <= '1';
                end if;
             else
                case multi_phase is
@@ -936,7 +917,7 @@ begin
                               multi_role_stable        <= 0;
                            end if;
                            if (REG_SIOCNT(14) = '1' and multi_error = '0') then
-                              irp_serial_i <= '1';
+                              IRP_Serial <= '1';
                            end if;
                         else
                            multi_endcount <= multi_endcount + 1;
@@ -1019,7 +1000,7 @@ begin
             end if;
 
             if (REG_SIOCNT(14) = '1') then
-               irp_serial_i <= '1';
+               IRP_Serial <= '1';
             end if;
          end if;
 
@@ -1082,7 +1063,7 @@ begin
             end case;
 
             if (joy_command_kind /= JOY_COMMAND_STATUS and joy_irq_enable = '1') then
-               irp_serial_i <= '1';
+               IRP_Serial <= '1';
             end if;
          end if;
 
@@ -1108,7 +1089,7 @@ begin
          -- boundary prevents a stale synchronized edge from firing on entry.
          if (serial_mode = SERIAL_GPIO and serial_mode_prev = SERIAL_GPIO and
              REG_RCNT(8) = '1' and si_fall = '1') then
-            irp_serial_i <= '1';
+            IRP_Serial <= '1';
          end if;
 
          -- Low-byte Normal writes include both transfer starts and the
@@ -1169,7 +1150,7 @@ begin
          -- Reset, mode-load abort, and savestate load never complete a wire
          -- transaction or raise an interrupt.
          if (physical_reset = '1') then
-            irp_serial_i            <= '0';
+            IRP_Serial              <= '0';
             multi_phase            <= MULTI_PHASE_IDLE;
             multi_is_parent        <= '0';
             multi_role_valid       <= '0';
@@ -1203,109 +1184,5 @@ begin
          end if;
       end if;
    end process;
-   -- ===================================================================
-   -- Link debug overlay. Word map (row-major, 6 words per row):
-   --  0 starts from idle     1 SC glitches filtered   2 start writes while busy
-   --  3 serial IRQs          4 no-peer timeouts       5 error rises
-   --  6 last SIOCNT write    7 SIOCNT readback        8 RCNT register
-   --  9 SD/SI glitches      10 SIOCNT writes         11 status
-   -- 12-15 SIOMULTI0-3      16 SIOMLT_SEND writes    17 mode changes
-   -- 18 normal starts       19 normal completions    20 SIOMULTI reads
-   -- 21 SIOCNT reads        22 last frame ticks      23 heartbeat
-   -- status: [15:12] mode, [11:8] phase, [7] parent, [6] role valid,
-   --         [5] id valid, [4] error, [3] SI, [2] SD, [1] SC, [0] SO pins.
-   -- ===================================================================
-   process (clk100)
-   begin
-      if rising_edge(clk100) then
-         if (SIOCNT_written = '1' and SIOCNT_bEna(0) = '1' and REG_SIOCNT(7) = '1' and
-             serial_mode = SERIAL_MULTI and mode_changed = '0') then
-            if (multi_phase /= MULTI_PHASE_IDLE) then
-               dbg(2) <= dbg(2) + 1;
-            elsif (multi_role_valid = '1' and multi_is_parent = '1' and
-                   multi_parent_observed = '1') then
-               dbg(0) <= dbg(0) + 1;
-            end if;
-         end if;
-         if (irp_serial_i = '1') then
-            dbg(3) <= dbg(3) + 1;
-         end if;
-         if (multi_phase = MULTI_PHASE_PARENT_WAIT_CHILD_START and new_exact_cycle = '1' and
-             sd_sync(1) = '1' and multi_endcount >= multi_endlimit) then
-            dbg(4) <= dbg(4) + 1;
-         end if;
-         dbg_err_prev <= multi_error;
-         if (multi_error = '1' and dbg_err_prev = '0') then
-            dbg(5) <= dbg(5) + 1;
-         end if;
-         if (SIOCNT_written = '1') then
-            dbg(6)  <= unsigned(REG_SIOCNT);
-            dbg(10) <= dbg(10) + 1;
-         end if;
-         dbg(7) <= unsigned(SIOCNT_READBACK);
-         dbg(8) <= unsigned(REG_RCNT);
-         if (pin_glitch(2) = '1') then
-            dbg(1) <= dbg(1) + 1;
-         end if;
-         if (pin_glitch(1) = '1' or pin_glitch(0) = '1') then
-            dbg(9) <= dbg(9) + 1;
-         end if;
-         dbg(11) <= to_unsigned(serial_mode_type'pos(serial_mode), 4) &
-                    to_unsigned(multi_phase_type'pos(multi_phase), 4) &
-                    multi_is_parent & multi_role_valid & multi_id_valid & multi_error &
-                    si_sync(1) & sd_sync(1) & sc_sync(1) & so_sync(1);
-         dbg(12) <= unsigned(REG_SIODATA32_READBACK(15 downto 0));
-         dbg(13) <= unsigned(REG_SIODATA32_READBACK(31 downto 16));
-         dbg(14) <= unsigned(REG_SIOMULTI23_READBACK(15 downto 0));
-         dbg(15) <= unsigned(REG_SIOMULTI23_READBACK(31 downto 16));
-         if (SIOMLT_SEND_written = '1' or SIO12A_word_written = '1') then
-            dbg(16) <= dbg(16) + 1;
-         end if;
-         if (mode_changed = '1') then
-            dbg(17) <= dbg(17) + 1;
-         end if;
-         if (normal_start = '1') then
-            dbg(18) <= dbg(18) + 1;
-         end if;
-         if (normal_complete = '1') then
-            dbg(19) <= dbg(19) + 1;
-         end if;
-         if (gb_bus.ena = '1' and gb_bus.rnw = '1') then
-            if (gb_bus.Adr = std_logic_vector(to_unsigned(16#120#, gb_bus.Adr'length)) or
-                gb_bus.Adr = std_logic_vector(to_unsigned(16#124#, gb_bus.Adr'length))) then
-               dbg(20) <= dbg(20) + 1;
-            end if;
-            if (gb_bus.Adr = std_logic_vector(to_unsigned(16#128#, gb_bus.Adr'length))) then
-               dbg(21) <= dbg(21) + 1;
-            end if;
-         end if;
-         dbg_active_prev <= multi_active;
-         if (multi_active = '1' and new_exact_cycle = '1') then
-            dbg_frame_ticks <= dbg_frame_ticks + 1;
-         elsif (multi_active = '0' and dbg_active_prev = '1') then
-            dbg(22) <= dbg_frame_ticks;
-         elsif (multi_active = '0') then
-            dbg_frame_ticks <= (others => '0');
-         end if;
-         if (new_exact_cycle = '1') then
-            dbg_heartbeat <= dbg_heartbeat + 1;
-         end if;
-         dbg(23) <= dbg_heartbeat(31 downto 16);
-         if (gb_bus.rst = '1') then
-            for i in 0 to 5 loop
-               dbg(i) <= (others => '0');
-            end loop;
-            dbg(9)  <= (others => '0');
-            dbg(10) <= (others => '0');
-            for i in 16 to 21 loop
-               dbg(i) <= (others => '0');
-            end loop;
-         end if;
-      end if;
-   end process;
-
-   gdbg : for i in 0 to 23 generate
-      serial_debug(i * 16 + 15 downto i * 16) <= std_logic_vector(dbg(i));
-   end generate;
 
 end architecture;

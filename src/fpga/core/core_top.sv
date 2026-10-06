@@ -263,10 +263,6 @@ wire serial_sc_out;
 wire serial_sc_oe;
 wire serial_sc_in = port_tran_sck;
 wire serial_link_active;
-wire [383:0] serial_debug;
-// Link debug overlay (24 hex words at the bottom of the screen). Testing aid
-// for the 3/4-player work; set to 0 for release builds.
-localparam SERIAL_DEBUG_OVERLAY = 1'b0;
 
 assign port_tran_so     = serial_so_oe ? serial_so_out : 1'bz;
 assign port_tran_so_dir = serial_so_oe;
@@ -1446,9 +1442,6 @@ video_adapter video_out (
     .pixel_data ( pixel_out_data ),
     .pixel_we   ( pixel_out_we ),
 
-    .dbg_enable ( SERIAL_DEBUG_OVERLAY ),
-    .dbg_words  ( serial_debug ),
-
     .video_rgb  ( video_rgb ),
     .video_de   ( video_de ),
     .video_vs   ( video_vs ),
@@ -1716,7 +1709,6 @@ gba_top #(
     .serial_sc_oe        ( serial_sc_oe ),
     .serial_sc_in        ( serial_sc_in ),
     .serial_link_active  ( serial_link_active ),
-    .serial_debug        ( serial_debug ),
     // Debug (unused)
     .GBA_BusAddr         ( 28'd0 ),
     .GBA_BusRnW          ( 1'b0 ),

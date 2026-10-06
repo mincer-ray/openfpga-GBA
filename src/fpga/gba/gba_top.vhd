@@ -111,7 +111,6 @@ entity gba_top is
       serial_sc_oe          : out    std_logic;
       serial_sc_in          : in     std_logic;
       serial_link_active    : out    std_logic;
-      serial_debug          : out    std_logic_vector(383 downto 0);
       -- debug interface
       GBA_BusAddr           : in     std_logic_vector(27 downto 0);
       GBA_BusRnW            : in     std_logic;
@@ -356,8 +355,7 @@ begin
       serial_sd_in  => serial_sd_in,
       serial_sc_out => serial_sc_out,
       serial_sc_oe  => serial_sc_oe,
-      serial_sc_in  => serial_sc_in,
-      serial_debug  => serial_debug
+      serial_sc_in  => serial_sc_in
    );
 
    -- real modules

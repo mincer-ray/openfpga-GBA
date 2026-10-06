@@ -26,10 +26,6 @@ module video_adapter (
     input  wire [17:0] pixel_data,    // {R[5:0], G[5:0], B[5:0]}
     input  wire        pixel_we,
 
-    // Debug overlay: 24 x 16-bit words drawn as hex over the bottom 48 lines
-    input  wire        dbg_enable,
-    input  wire [383:0] dbg_words,
-
     // Video output to APF scaler (clk_vid domain)
     output reg  [23:0] video_rgb,
     output reg         video_de,
@@ -111,60 +107,6 @@ module video_adapter (
             pixel_read <= framebuffer[read_addr];
     end
 
-    // === Debug Overlay (3x5 hex font at 2x, 6 words x 4 rows) ===
-    localparam int unsigned OVL_Y0 = V_ACTIVE - 48;
-
-    reg [383:0] dbg_s1, dbg_s2;
-    always @(posedge clk_vid) begin
-        dbg_s1 <= dbg_words;   // quasi-static display data; tearing is harmless
-        dbg_s2 <= dbg_s1;
-    end
-
-    function automatic [14:0] hex_glyph(input [3:0] n);
-        case (n)
-            4'h0: hex_glyph = 15'b111_101_101_101_111;
-            4'h1: hex_glyph = 15'b010_110_010_010_111;
-            4'h2: hex_glyph = 15'b111_001_111_100_111;
-            4'h3: hex_glyph = 15'b111_001_111_001_111;
-            4'h4: hex_glyph = 15'b101_101_111_001_001;
-            4'h5: hex_glyph = 15'b111_100_111_001_111;
-            4'h6: hex_glyph = 15'b111_100_111_101_111;
-            4'h7: hex_glyph = 15'b111_001_001_001_001;
-            4'h8: hex_glyph = 15'b111_101_111_101_111;
-            4'h9: hex_glyph = 15'b111_101_111_001_111;
-            4'hA: hex_glyph = 15'b010_101_111_101_101;
-            4'hB: hex_glyph = 15'b110_101_110_101_110;
-            4'hC: hex_glyph = 15'b011_100_100_100_011;
-            4'hD: hex_glyph = 15'b110_101_101_101_110;
-            4'hE: hex_glyph = 15'b111_100_111_100_111;
-            default: hex_glyph = 15'b111_100_111_100_100;
-        endcase
-    endfunction
-
-    wire       ovl_area = dbg_enable && active && (v_count >= OVL_Y0);
-    wire [5:0] ovl_y    = v_count - OVL_Y0;          // 0..47
-    wire [1:0] ovl_row  = ovl_y / 12;
-    wire [3:0] ovl_yy   = ovl_y % 12;                // 0..9 glyph, 10..11 gap
-    wire [2:0] ovl_word = h_count / 40;              // 0..5
-    wire [5:0] ovl_xx   = h_count % 40;
-    wire [2:0] ovl_dig  = ovl_xx[5:3];               // 0..3 digits, 4 gap
-    wire [2:0] ovl_cx   = ovl_xx[2:0];               // 0..5 glyph, 6..7 gap
-    wire [4:0] ovl_idx  = ovl_row * 6 + ovl_word;
-    wire [15:0] ovl_val = dbg_s2[ovl_idx * 16 +: 16];
-    wire [3:0] ovl_nib  = ovl_val[(3 - ovl_dig[1:0]) * 4 +: 4];
-    wire [14:0] ovl_g   = hex_glyph(ovl_nib);
-    wire [2:0] ovl_gy   = ovl_yy[3:1];
-    wire [1:0] ovl_gx   = ovl_cx[2:1];
-    wire       ovl_on   = (ovl_yy < 10) && (ovl_dig < 4) && (ovl_cx < 6) &&
-                          ovl_g[14 - (ovl_gy * 3 + ovl_gx)];
-
-    reg ovl_area_d1, ovl_on_d1, ovl_odd_d1;
-    always @(posedge clk_vid) begin
-        ovl_area_d1 <= ovl_area;
-        ovl_on_d1   <= ovl_on;
-        ovl_odd_d1  <= ovl_idx[0];
-    end
-
     // === Color Expansion: 6-bit -> 8-bit ===
     // Replicate top 2 bits into bottom 2 for full [0..255] range
     wire [7:0] r8 = {pixel_read[17:12], pixel_read[17:16]};
@@ -198,10 +140,7 @@ module video_adapter (
             video_vs   <= 1'b0;
             video_skip <= 1'b0;
         end else begin
-            if (active_d1 && ovl_area_d1)
-                video_rgb <= ovl_on_d1 ? (ovl_odd_d1 ? 24'hFFFF40 : 24'hFFFFFF) : 24'h000000;
-            else
-                video_rgb <= active_d1 ? {r8, g8, b8} : 24'd0;
+            video_rgb  <= active_d1 ? {r8, g8, b8} : 24'd0;
             video_de   <= active_d1;
             video_hs   <= hs_pipe[0] & ~hs_pipe[1];
             video_vs   <= vs_pipe[0] & ~vs_pipe[1];
