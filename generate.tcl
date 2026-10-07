@@ -19,14 +19,3 @@ if {[catch {qexec "quartus_sta -t scripts/sta_custom_report.tcl"} result]} {
 } else {
     post_message "Custom STA completed successfully."
 }
-
-# Verify reports were generated
-foreach f {build_output/reports/ap_core.sta.paths_setup.rpt
-           build_output/reports/ap_core.sta.paths_hold.rpt
-           build_output/reports/ap_core.sta.clock_summary.rpt} {
-    if {[file exists $f]} {
-        post_message "Report OK: $f"
-    } else {
-        post_message -type warning "Report MISSING: $f"
-    }
-}
