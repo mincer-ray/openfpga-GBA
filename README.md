@@ -11,11 +11,8 @@ LLM assisted port of [MiSTer GBA core](https://github.com/MiSTer-devel/GBA_MiSTe
 - **Fast Forward (Bound to Y button)**
 - **Button Turbo (Bound to X button)**
 - **RTC**
-- **Link Cable (Partial)** - 2p Multiplayer, GCN link, GBA wireless, Single Pak download
-
-##  Currently Not Included
-
-- **Link Cable** - 3p/4p Multiplayer
+- **Link Cable** - 2/3/4p Multiplayer, GCN link, GBA wireless, Single Pak download
+- **Rumble (DS Rumble Pak)**
 
 ## Fast Forward
 
@@ -93,5 +90,3 @@ Should be very easy
 ## License
 
 GPL-2.0 — see [GBA_MiSTer LICENSE](https://github.com/MiSTer-devel/GBA_MiSTer/blob/master/LICENSE) for details.
-
-2c5aef5574b6a47c95bb8154197059d99acbd555a7b5b25365112b56b7a79a17

@@ -42,6 +42,10 @@ end entity;
 architecture arch of gba_serial is
 
    constant MULTI_ROLE_STABLE_LIMIT : integer := 16383;
+   -- Parent acquisition window, in native ticks (~15 us). The 1 ms window
+   -- never completed on a 3/4-player cable, where SC is undriven until a
+   -- parent latches and glitches often enough to reset it.
+   constant MULTI_PARENT_ACQUIRE    : integer := 255;
 
    subtype word16_t is std_logic_vector(15 downto 0);
    subtype word32_t is std_logic_vector(31 downto 0);
@@ -127,7 +131,12 @@ architecture arch of gba_serial is
    -- SIOMULTI0 (0x120, lower 16-bit), and SIOMULTI1 (0x122, upper 16-bit)
    signal REG_SIODATA32_READBACK : std_logic_vector(31 downto 0) := (others => '1');
    signal SIODATA32_READBACK_BUS : std_logic_vector(31 downto 0) := (others => '1');
-   constant REG_SIOMULTI23_READBACK : std_logic_vector(31 downto 0) := x"FFFFFFFF";
+   signal REG_SIOMULTI23_READBACK : std_logic_vector(31 downto 0) := (others => '1');
+   -- Slot being received/transmitted (0 = parent word, 1-3 = children).
+   signal multi_slot      : integer range 0 to 3 := 0;
+   -- Child: our cable position, learned from the slot we transmitted in.
+   signal multi_local_id  : std_logic_vector(1 downto 0) := "01";
+   signal multi_sent      : std_logic := '0';
    signal SIODATA32_written      : std_logic;
    signal SIOMULTI0_written      : std_logic;
    signal SIOMULTI1_written      : std_logic;
@@ -150,6 +159,13 @@ architecture arch of gba_serial is
    signal si_sync          : std_logic_vector(2 downto 0) := (others => '1');
    signal sd_sync          : std_logic_vector(2 downto 0) := (others => '1');
    signal sc_sync          : std_logic_vector(2 downto 0) := (others => '1');
+   -- Link input glitch filter, index 0 = SI, 1 = SD, 2 = SC.
+   constant PIN_FILTER     : integer := 6;
+   type pin_raw_array is array (0 to 2) of std_logic_vector(1 downto 0);
+   type pin_hold_array is array (0 to 2) of integer range 0 to PIN_FILTER;
+   signal pin_raw          : pin_raw_array := (others => (others => '1'));
+   signal pin_hold         : pin_hold_array := (others => 0);
+   signal pin_clean        : std_logic_vector(2 downto 0) := (others => '1');
    signal si_fall          : std_logic;
 
    -- Normal 8/32-bit serial engine.
@@ -245,7 +261,7 @@ begin
          written  => open,
          bEna     => open
       );
-   iSIOMULTI3   : entity work.eProcReg_gba generic map (SIOMULTI3  ) port map  (clk100, gb_bus, x"FFFF"               , open           );
+   iSIOMULTI3   : entity work.eProcReg_gba generic map (SIOMULTI3  ) port map  (clk100, gb_bus, REG_SIOMULTI23_READBACK(31 downto 16), open);
    iSIOCNT      : entity work.eProcReg_gba generic map (SIOCNT     ) port map  (clk100, gb_bus, SIOCNT_READBACK       , REG_SIOCNT     , SIOCNT_written, SIOCNT_bEna);
    iSIOCNT_SEND : entity work.eProcReg_gba generic map (SIOCNT_SEND) port map  (clk100, gb_bus, REG_SIOCNT_SEND_READBACK, REG_SIOCNT_SEND, SIOCNT_SEND_written, SIOCNT_SEND_bEna);
    iSIOMLT_SEND : entity work.eProcReg_gba generic map (SIOMLT_SEND) port map  (clk100, gb_bus, REG_SIO12A_READBACK   , REG_SIOMLT_SEND_BUS, SIOMLT_SEND_written);
@@ -282,7 +298,7 @@ begin
    multi_role_bit <= '1' when multi_role_valid = '0' else (not multi_is_parent);
    multi_id_state <= "00" when multi_id_valid = '0' else
                      "00" when multi_is_parent = '1' else
-                     "01";
+                     multi_local_id;
    -- Only treat the idle bus as "parent-candidate" when all three external
    -- lines have settled into the expected master-side signature for a sustained
    -- period. A brief SI glitch on the slave side should not be enough to flip
@@ -376,23 +392,35 @@ begin
    -- finished so the first child sees a real downstream "go" transition before
    -- starting its reply. Child units still pull SO LOW while forwarding to the
    -- next device in the chain.
+   -- A child grants the next console during its own stop bit and holds the
+   -- grant until the frame ends, as hardware does. (Master pulled it low as
+   -- soon as the parent word arrived, which in a 3/4-player chain makes the
+   -- next child transmit on top of us; in 2p the child SO is unconnected.)
    multi_so_state <= '0' when ((multi_role_valid = '1' and multi_is_parent = '1' and
                                 (multi_phase = MULTI_PHASE_PARENT_WAIT_CHILD_START or
                                  multi_phase = MULTI_PHASE_PARENT_RX or
                                  multi_phase = MULTI_PHASE_PARENT_COMPLETE_WAIT)) or
                                (multi_role_valid = '1' and multi_is_parent = '0' and
-                                (multi_sending = '1' or multi_send_pending = '1')))
+                                multi_active = '1' and
+                                (multi_sent = '1' or
+                                 (multi_phase = MULTI_PHASE_CHILD_TX and multi_bitcount = 17))))
                      else '1';
    multi_endlimit <= multi_speed * 18;
    -- SD is a shared line: release it while idle/receiving and let the
    -- board-level pull-up provide the ready HIGH level.
-   multi_sd_drive_state <= '1' when multi_mode = '1' and multi_sending = '1' else
+   -- A child stops driving halfway through its stop bit and lets the pull-up
+   -- hold it high: the next console starts at its own idea of the word
+   -- boundary, and our bit clock (e.g. 1748 vs ~1747.6 ticks at 9600) would
+   -- otherwise still be driving when it does.
+   multi_sd_drive_state <= '1' when multi_mode = '1' and multi_phase = MULTI_PHASE_PARENT_TX else
+                           '1' when multi_mode = '1' and multi_phase = MULTI_PHASE_CHILD_TX and
+                                    not (multi_bitcount = 17 and multi_cycles >= (multi_speed / 2)) else
                            '0';
    -- Once the child has begun transmitting its reply, trust the parent's SC
    -- release as the authoritative end-of-transfer signal. Real hardware can
    -- release SC before our local stop-bit phase bookkeeping reaches a
    -- synthesized "half stop bit elapsed" threshold.
-   multi_child_finish_ok <= '1' when multi_phase = MULTI_PHASE_CHILD_WAIT_PARENT_END else
+   multi_child_finish_ok <= '1' when multi_sent = '1' else
                             '1' when multi_phase = MULTI_PHASE_CHILD_TX else
                             '0';
    multi_sc_out_r <= not multi_active;
@@ -517,6 +545,30 @@ begin
       end if;
    end process;
 
+   -- A real GBA clocks its link logic at 16.78 MHz, so ringing or crosstalk
+   -- shorter than a native tick never reaches it; at 100 MHz we would see it.
+   -- A child's Normal-mode shifter counts every SC edge, so one glitch on a
+   -- long 4-player cable shifts it a bit and desyncs the stream. Accept a new
+   -- input level only after it has held for PIN_FILTER clocks (~60 ns).
+   process (clk100)
+   begin
+      if rising_edge(clk100) then
+         pin_raw(0) <= pin_raw(0)(0) & serial_si_in;
+         pin_raw(1) <= pin_raw(1)(0) & serial_sd_in;
+         pin_raw(2) <= pin_raw(2)(0) & serial_sc_in;
+         for i in 0 to 2 loop
+            if (pin_raw(i)(1) = pin_clean(i)) then
+               pin_hold(i) <= 0;
+            elsif (pin_hold(i) = PIN_FILTER - 1) then
+               pin_clean(i) <= pin_raw(i)(1);
+               pin_hold(i)  <= 0;
+            else
+               pin_hold(i) <= pin_hold(i) + 1;
+            end if;
+         end loop;
+      end if;
+   end process;
+
    process (clk100)
    begin
       if rising_edge(clk100) then
@@ -525,9 +577,18 @@ begin
 
          -- Synchronize external inputs
          so_sync  <= so_sync(1 downto 0) & serial_so_in;
-         sc_sync  <= sc_sync(1 downto 0) & serial_sc_in;
-         sd_sync  <= sd_sync(1 downto 0) & serial_sd_in;
-         si_sync  <= si_sync(1 downto 0) & serial_si_in;
+         -- SC is filtered in every mode (Normal slave counts its edges). SI
+         -- and SD are filtered only in Multi: the 2 MHz Normal master samples
+         -- SI one native tick after its rising SC edge, and the filter delay
+         -- would move that sample ahead of the wireless adapter's data.
+         sc_sync  <= sc_sync(1 downto 0) & pin_clean(2);
+         if (serial_mode = SERIAL_MULTI) then
+            sd_sync  <= sd_sync(1 downto 0) & pin_clean(1);
+            si_sync  <= si_sync(1 downto 0) & pin_clean(0);
+         else
+            sd_sync  <= sd_sync(1 downto 0) & serial_sd_in;
+            si_sync  <= si_sync(1 downto 0) & serial_si_in;
+         end if;
 
          if (multi_mode = '0') then
             multi_is_parent         <= '0';
@@ -549,7 +610,7 @@ begin
                   multi_role_sample_parent <= multi_parent_observed;
                   multi_role_stable        <= 0;
                elsif (new_exact_cycle = '1') then
-                  if (multi_role_stable < MULTI_ROLE_STABLE_LIMIT) then
+                  if (multi_role_stable < MULTI_PARENT_ACQUIRE) then
                      multi_role_stable <= multi_role_stable + 1;
                   elsif (multi_parent_observed = '1') then
                      multi_id_valid    <= '0';
@@ -592,8 +653,10 @@ begin
 
             -- On real hardware the slave's busy state is driven by the
             -- incoming SC line, not by a local start-bit write.
+            -- A unit with a grounded SI is never a child: an SC glitch seen
+            -- before the parent role latches must not start a child frame.
             if ((multi_role_valid = '0' or multi_is_parent = '0') and
-                multi_parent_observed = '0' and
+                multi_parent_observed = '0' and si_sync(1) = '1' and
                 sc_fall = '1' and multi_phase = MULTI_PHASE_IDLE) then
                multi_is_parent          <= '0';
                multi_role_valid         <= '1';
@@ -608,12 +671,15 @@ begin
                multi_rx_first           <= '0';
                multi_sd_out_r           <= '1';
                multi_endcount           <= 0;
+               multi_slot               <= 0;
+               multi_sent               <= '0';
                if (si_sync(1) = '0') then
                   multi_si_seen_low <= '1';
                else
                   multi_si_seen_low <= '0';
                end if;
                REG_SIODATA32_READBACK   <= (others => '1');
+               REG_SIOMULTI23_READBACK  <= (others => '1');
             elsif (multi_is_parent = '0' and sc_rise = '1' and multi_phase /= MULTI_PHASE_IDLE) then
                if (multi_child_finish_ok = '0' or multi_si_seen_low = '0') then
                   multi_error <= '1';
@@ -632,6 +698,7 @@ begin
                multi_endcount <= 0;
                multi_sd_out_r <= '1';
                multi_si_seen_low <= '0';
+               multi_sent     <= '0';
                if (REG_SIOCNT(14) = '1' and
                    multi_child_finish_ok = '1' and
                    multi_si_seen_low = '1') then
@@ -657,11 +724,15 @@ begin
                               multi_cycles   <= (others => '0');
                               multi_sd_out_r <= '1';
                               if (multi_phase = MULTI_PHASE_PARENT_TX) then
-                                 REG_SIODATA32_READBACK <= pack_multi_slots(REG_SIOMLT_SEND, x"FFFF");
+                                 REG_SIODATA32_READBACK <= pack_multi_slots(multi_tx_reg(15 downto 0), x"FFFF");
                                  multi_phase <= MULTI_PHASE_PARENT_WAIT_CHILD_START;
                                  multi_endcount <= 0;
                               else
-                                 multi_phase <= MULTI_PHASE_CHILD_WAIT_PARENT_END;
+                                 -- Keep listening for the words after ours,
+                                 -- starting at the word boundary.
+                                 multi_sent   <= '1';
+                                 multi_phase  <= MULTI_PHASE_CHILD_REPLY_DELAY;
+                                 multi_cycles <= to_unsigned(multi_speed, multi_cycles'length);
                               end if;
                            end if;
                         else
@@ -671,6 +742,7 @@ begin
 
                   when MULTI_PHASE_PARENT_WAIT_CHILD_START =>
                      if (sd_sync(1) = '0') then
+                        multi_slot     <= 1;
                         multi_phase    <= MULTI_PHASE_PARENT_RX;
                         multi_bitcount <= 0;
                         multi_cycles   <= (others => '0');
@@ -731,12 +803,28 @@ begin
                               end if;
 
                               if (multi_phase = MULTI_PHASE_PARENT_RX) then
-                                 REG_SIODATA32_READBACK <= pack_multi_slots(REG_SIOMLT_SEND, multi_rx_reg(15 downto 0));
+                                 case multi_slot is
+                                    when 2 =>
+                                       REG_SIOMULTI23_READBACK(15 downto 0) <= multi_rx_reg(15 downto 0);
+                                    when 3 =>
+                                       REG_SIOMULTI23_READBACK(31 downto 16) <= multi_rx_reg(15 downto 0);
+                                    when others =>
+                                       REG_SIODATA32_READBACK <= pack_multi_slots(multi_tx_reg(15 downto 0), multi_rx_reg(15 downto 0));
+                                 end case;
                                  multi_phase <= MULTI_PHASE_PARENT_COMPLETE_WAIT;
                                  multi_endcount <= 0;
                                  multi_cycles   <= (others => '0');
                               else
-                                 REG_SIODATA32_READBACK <= pack_multi_slots(multi_rx_reg(15 downto 0), REG_SIOMLT_SEND);
+                                 case multi_slot is
+                                    when 0 =>
+                                       REG_SIODATA32_READBACK <= pack_multi_slots(multi_rx_reg(15 downto 0), REG_SIOMLT_SEND);
+                                    when 1 =>
+                                       REG_SIODATA32_READBACK(31 downto 16) <= multi_rx_reg(15 downto 0);
+                                    when 2 =>
+                                       REG_SIOMULTI23_READBACK(15 downto 0) <= multi_rx_reg(15 downto 0);
+                                    when 3 =>
+                                       REG_SIOMULTI23_READBACK(31 downto 16) <= multi_rx_reg(15 downto 0);
+                                 end case;
                                  multi_phase <= MULTI_PHASE_CHILD_REPLY_DELAY;
                                  multi_cycles       <= (others => '0');
                                  multi_sd_out_r     <= '1';
@@ -752,23 +840,68 @@ begin
                      -- only the remaining half-bit is left before the next slot can
                      -- legally begin. A real slave should also see the previous
                      -- node's SO drive its SI terminal LOW before taking its turn.
-                     if (new_exact_cycle = '1') then
+                     -- At the boundary: transmit if granted and not yet sent
+                     -- (the number of words already heard is our position),
+                     -- otherwise receive the next console's word. After a
+                     -- good stop bit a falling SD is already the next start
+                     -- bit; catch it immediately so a faster sender cannot
+                     -- push our sampling late across a run of words.
+                     if (multi_slot < 3 and multi_error = '0' and sc_sync(1) = '0' and
+                         sd_sync(1) = '0' and
+                         not (multi_sent = '0' and (multi_si_seen_low = '1' or si_sync(1) = '0'))) then
+                        multi_slot     <= multi_slot + 1;
+                        multi_phase    <= MULTI_PHASE_CHILD_RX;
+                        multi_bitcount <= 0;
+                        multi_cycles   <= (others => '0');
+                        multi_rx_reg   <= (others => '1');
+                        multi_rx_first <= '1';
+                     elsif (new_exact_cycle = '1') then
                         if (si_sync(1) = '0') then
                            multi_si_seen_low <= '1';
                         end if;
-                        if (sc_sync(1) = '0' and multi_cycles >= (multi_speed / 2) and
-                            (multi_si_seen_low = '1' or si_sync(1) = '0')) then
-                           multi_phase    <= MULTI_PHASE_CHILD_TX;
-                           multi_bitcount <= 0;
-                           multi_cycles   <= (others => '0');
-                           multi_sd_out_r <= '0';
-                        else
+                        if (multi_cycles < (multi_speed / 2)) then
                            multi_cycles <= multi_cycles + 1;
+                        elsif (sc_sync(1) = '0') then
+                           if (multi_sent = '0' and multi_slot < 3 and
+                               (multi_si_seen_low = '1' or si_sync(1) = '0')) then
+                              multi_phase    <= MULTI_PHASE_CHILD_TX;
+                              multi_bitcount <= 0;
+                              multi_cycles   <= (others => '0');
+                              multi_sd_out_r <= '0';
+                              multi_si_seen_low <= '1';
+                              multi_slot     <= multi_slot + 1;
+                              multi_local_id <= std_logic_vector(to_unsigned(multi_slot + 1, 2));
+                              case multi_slot is
+                                 when 0 =>
+                                    REG_SIODATA32_READBACK(31 downto 16) <= multi_tx_reg(15 downto 0);
+                                 when 1 =>
+                                    REG_SIOMULTI23_READBACK(15 downto 0) <= multi_tx_reg(15 downto 0);
+                                 when others =>
+                                    REG_SIOMULTI23_READBACK(31 downto 16) <= multi_tx_reg(15 downto 0);
+                              end case;
+                           elsif (multi_slot < 3 and sd_sync(1) = '0') then
+                              multi_slot     <= multi_slot + 1;
+                              multi_phase    <= MULTI_PHASE_CHILD_RX;
+                              multi_bitcount <= 0;
+                              multi_cycles   <= (others => '0');
+                              multi_rx_reg   <= (others => '1');
+                              multi_rx_first <= '1';
+                           end if;
                         end if;
                      end if;
 
                   when MULTI_PHASE_PARENT_COMPLETE_WAIT =>
-                     if (new_exact_cycle = '1') then
+                     -- Entered at the previous child's stop-bit midpoint. A
+                     -- start bit after a good stop is the next child (3/4
+                     -- player); otherwise the frame ends as on master.
+                     if (multi_slot < 3 and multi_error = '0' and sd_sync(1) = '0') then
+                        multi_slot     <= multi_slot + 1;
+                        multi_phase    <= MULTI_PHASE_PARENT_RX;
+                        multi_bitcount <= 0;
+                        multi_cycles   <= (others => '0');
+                        multi_rx_reg   <= (others => '1');
+                        multi_rx_first <= '1';
+                     elsif (new_exact_cycle = '1') then
                         if (multi_endcount >= multi_endlimit) then
                            multi_phase    <= MULTI_PHASE_IDLE;
                            multi_cycles   <= (others => '0');
@@ -806,6 +939,7 @@ begin
             multi_endcount <= 0;
             multi_cycles   <= (others => '0');
             multi_bitcount <= 0;
+            multi_sent     <= '0';
          end if;
 
          -- ============================================================
@@ -815,7 +949,11 @@ begin
          if (SIOCNT_written = '1' and SIOCNT_bEna(0) = '1' and
              mode_changed = '0') then
             if (REG_SIOCNT(7) = '1') then
-               if (serial_mode = SERIAL_MULTI) then
+               -- A child's start write is ignored by hardware; it must not
+               -- disturb a frame the parent is clocking.
+               if (serial_mode = SERIAL_MULTI and
+                   (multi_phase = MULTI_PHASE_IDLE or
+                    (multi_role_valid = '1' and multi_is_parent = '1'))) then
                   -- Multi-player transfer start
                   multi_bitcount <= 0;
                   multi_cycles   <= (others => '0');
@@ -843,7 +981,9 @@ begin
                   end if;
 
                   -- Reset SIODATA32 readback to all 1s (per spec)
-                  REG_SIODATA32_READBACK <= (others => '1');
+                  REG_SIODATA32_READBACK  <= (others => '1');
+                  REG_SIOMULTI23_READBACK <= (others => '1');
+                  multi_slot              <= 0;
 
                end if;
             end if;
@@ -1025,6 +1165,10 @@ begin
             multi_bitcount         <= 0;
             multi_sd_out_r         <= '1';
             REG_SIODATA32_READBACK <= (others => '1');
+            REG_SIOMULTI23_READBACK <= (others => '1');
+            multi_slot             <= 0;
+            multi_sent             <= '0';
+            multi_local_id         <= "01";
             REG_SIODATA8_READBACK  <= (others => '0');
             REG_SIOMLT_SEND        <= (others => '0');
             REG_SIODATA8           <= (others => '0');
