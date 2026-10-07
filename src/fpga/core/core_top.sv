@@ -231,7 +231,7 @@ assign port_ir_rx_disable = 1;
 assign bridge_endian_little = 0;
 
 // ---- DS Rumble Pak driver (cart slot, AD1 tick-mode protocol) ----
-// Pin map (per Analogizer spec, verified):
+// Pin map:
 //   bank3[7:0] = AD[7:0]   ← bank3[1] = AD1 (tick)
 //   bank2[7:0] = AD[15:8]
 //   bank1[7:0] = A[23:16]
@@ -240,8 +240,7 @@ assign bridge_endian_little = 0;
 //   bank0[6]   = /WR
 //   bank0[7]   = PHI
 // Tick mode: the actuator moves on each AD1 change latched by /WR rising
-// edge; holding AD1 steady does nothing. Timing follows budude2's
-// openfpga-GBC rumbler.sv (HW-verified with the same pak), rescaled from
+// edge; holding AD1 steady does nothing. Timing rescaled from
 // 33.554 MHz to clk_74a: flip AD1, 268 ns setup, 268 ns /WR low, repeat
 // every 2.54 ms (~394 flips/s, ~197 Hz on AD1).
 
