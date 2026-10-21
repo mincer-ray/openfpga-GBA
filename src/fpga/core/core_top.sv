@@ -230,35 +230,41 @@ assign port_ir_rx_disable = 1;
 // bridge endianness
 assign bridge_endian_little = 0;
 
-// ---- DS Rumble Pak driver (cart slot, AD1 tick-mode protocol) ----
+// ---- Rumble driver (cart slot: DS Rumble Pak or GPIO rumble cart) ----
 // Pin map:
-//   bank3[7:0] = AD[7:0]   ← bank3[1] = AD1 (tick)
+//   bank3[7:0] = AD[7:0]
 //   bank2[7:0] = AD[15:8]
 //   bank1[7:0] = A[23:16]
 //   bank0[4]   = /CS
 //   bank0[5]   = /RD
 //   bank0[6]   = /WR
 //   bank0[7]   = PHI
-// Tick mode: the actuator moves on each AD1 change latched by /WR rising
-// edge; holding AD1 steady does nothing. Timing rescaled from
-// 33.554 MHz to clk_74a: flip AD1, 268 ns setup, 268 ns /WR low, repeat
-// every 2.54 ms (~394 flips/s, ~197 Hz on AD1).
+//   pin30      = /CS2 (SRAM select)
+// One driver serves both device types without detection, using real GBA
+// ROM-bus write cycles (address latched on /CS fall, data on /WR rise):
+//   DS Rumble Pak: tick actuator. It latches AD1 on /WR rise and ignores
+//     /CS and address. It moves on each AD1 change, so AD1 flips once per
+//     2.54 ms while rumble is on (timing from budude2 GBC, rescaled to clk_74a).
+//   GPIO rumble cart (Drill Dozer, WarioWare Twisted): motor on GPIO3 level.
+//     Write 80000C6h (direction) = bit3 out, then 80000C4h (data) = bit3 motor.
+// Each update writes direction then data. Both carry AD1 = the current tick
+// state, so the DS pak sees one AD1 change per update at most. An update runs
+// whenever the tick or motor level changes, and again every ~14 ms so a cart
+// inserted later is set up. A[23:16] = 0, so writes stay in the 80000xxh ROM
+// window (never EEPROM, which sits at A23+).
 
 wire cart_rumble;                    // from gba_top, clk_sys domain
 wire cart_rumble_74;                 // synced to clk_74a
 synch_3 cart_rumble_sync(cart_rumble, cart_rumble_74, clk_74a);
 
-localparam [17:0] RUMBLE_WR_START = 18'd20;      // 268 ns AD1 setup
-localparam [17:0] RUMBLE_WR_END   = 18'd40;      // 268 ns /WR low
 localparam [17:0] RUMBLE_PERIOD   = 18'd188560;  // 2.540 ms per flip
 
 // AD1 flips once per period while cart_rumble is high (toggle, not gate),
 // so any game "on" pulse, however short, produces at least one flip and
 // game software-PWM (Drill Dozer GPIO3) can't alias against a fixed
-// carrier. When idle, writes stop and AD1 holds its last value.
+// carrier. When idle, flips stop and AD1 holds its last value.
 reg [17:0] rumble_cnt = 18'd0;       // 0 = idle
 reg        rumble_ad1 = 1'b0;
-reg        rumble_wr_n = 1'b1;
 
 always @(posedge clk_74a) begin
     if (rumble_cnt == 18'd0 || rumble_cnt == RUMBLE_PERIOD - 18'd1) begin
@@ -271,20 +277,72 @@ always @(posedge clk_74a) begin
     end else begin
         rumble_cnt <= rumble_cnt + 18'd1;
     end
-    rumble_wr_n <= ~(rumble_cnt >= RUMBLE_WR_START && rumble_cnt < RUMBLE_WR_END);
 end
 
-// AD1 = rumble_ad1 (toggled tick), AD0 = 0, AD7..2 = 0; bus always driven.
-assign cart_tran_bank3     = {6'b0, rumble_ad1, 1'b0};
+// Bus write sequencer. One write = 120 clk (~1.6 us) in 20-clk (~270 ns) phases:
+//   0-19 address setup, 20-39 /CS low (address latched), 40-59 data setup,
+//   60-79 /WR low, 80-99 /WR high (data latched), 100-119 /CS high.
+localparam [15:0] GPIO_DATA_ADDR = 16'h0062;  // 80000C4h / 2
+localparam [15:0] GPIO_DIR_ADDR  = 16'h0063;  // 80000C6h / 2
+
+reg [19:0] rumble_refresh = 20'd0;   // 2^20 clk = 14.1 ms
+reg        refresh_due    = 1'b1;    // set up the cart once after config
+reg        wr_busy        = 1'b0;
+reg        wr_data_phase  = 1'b0;    // 0 = direction write, 1 = data write
+reg [6:0]  wr_cnt         = 7'd0;
+reg        sent_motor     = 1'b0;
+reg        sent_ad1       = 1'b0;
+
+reg [15:0] rumble_ad      = 16'h0000;
+reg        rumble_cs_n    = 1'b1;
+reg        rumble_wr_n    = 1'b1;
+
+wire [15:0] wr_addr = wr_data_phase ? GPIO_DATA_ADDR : GPIO_DIR_ADDR;
+wire [15:0] wr_data = wr_data_phase ? {12'h000, sent_motor, 1'b0, sent_ad1, 1'b0}
+                                    : {12'h000, 1'b1,       1'b0, sent_ad1, 1'b0};
+
+always @(posedge clk_74a) begin
+    rumble_refresh <= rumble_refresh + 20'd1;
+    if (&rumble_refresh) refresh_due <= 1'b1;
+
+    if (!wr_busy) begin
+        if (refresh_due || sent_ad1 != rumble_ad1 || sent_motor != cart_rumble_74) begin
+            refresh_due   <= 1'b0;
+            sent_ad1      <= rumble_ad1;
+            sent_motor    <= cart_rumble_74;
+            wr_busy       <= 1'b1;
+            wr_data_phase <= 1'b0;
+            wr_cnt        <= 7'd0;
+        end
+    end else if (wr_cnt == 7'd119) begin
+        wr_cnt <= 7'd0;
+        if (wr_data_phase) wr_busy <= 1'b0;
+        wr_data_phase <= ~wr_data_phase;
+    end else begin
+        wr_cnt <= wr_cnt + 7'd1;
+    end
+
+    // Registered pin outputs. Between writes AD keeps the last data value.
+    if (wr_busy) begin
+        rumble_ad   <= (wr_cnt < 7'd40) ? wr_addr : wr_data;
+        rumble_cs_n <= ~(wr_cnt >= 7'd20 && wr_cnt < 7'd100);
+        rumble_wr_n <= ~(wr_cnt >= 7'd60 && wr_cnt < 7'd80);
+    end else begin
+        rumble_cs_n <= 1'b1;
+        rumble_wr_n <= 1'b1;
+    end
+end
+
+assign cart_tran_bank3     = rumble_ad[7:0];
 assign cart_tran_bank3_dir = 1'b1;
-assign cart_tran_bank2     = 8'h00;
+assign cart_tran_bank2     = rumble_ad[15:8];
 assign cart_tran_bank2_dir = 1'b1;
-assign cart_tran_bank1     = 8'h00;
+assign cart_tran_bank1     = 8'h00;                 // A[23:16] = 0 (80000xxh)
 assign cart_tran_bank1_dir = 1'b1;
-// bank0[7]=PHI=0, [6]=/WR (pulsed), [5]=/RD=1, [4]=/CS=0 active
-assign cart_tran_bank0     = {1'b0, rumble_wr_n, 1'b1, 1'b0};
+// bank0[7]=PHI=0, [6]=/WR, [5]=/RD=1, [4]=/CS
+assign cart_tran_bank0     = {1'b0, rumble_wr_n, 1'b1, rumble_cs_n};
 assign cart_tran_bank0_dir = 1'b1;
-assign cart_tran_pin30 = 1'b0;
+assign cart_tran_pin30 = 1'b0;                      // /CS2: left to Pocket hardware (template default)
 assign cart_tran_pin30_dir = 1'bz;
 assign cart_pin30_pwroff_reset = 1'b0;
 assign cart_tran_pin31 = 1'bz;
