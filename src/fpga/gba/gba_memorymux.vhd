@@ -112,7 +112,8 @@ entity gba_memorymux is
       GPIO_Dout            : out    std_logic_vector(3 downto 0);
       GPIO_writeEna        : out    std_logic := '0';
       GPIO_addr            : out    std_logic_vector(1 downto 0);
-      
+      GPIO_readable        : in     std_logic;
+
       tilt                 : in     std_logic;
       AnalogTiltX          : in     signed(7 downto 0);
       AnalogTiltY          : in     signed(7 downto 0);
@@ -538,7 +539,8 @@ begin
                         when x"8" | x"9" | x"A" | x"B" | x"C" =>
                            if (unsigned(adr_save(24 downto 2)) >= unsigned(MaxPakAddr)) then
                               state       <= READAFTERPAK;
-                           elsif (specialmodule = '1' and unsigned(adr_save) >= 16#80000C4# and unsigned(adr_save) <= 16#80000C8#) then
+                           -- GPIO registers only replace ROM data once the game sets the read-enable bit (0x80000C8 bit 0)
+                           elsif (specialmodule = '1' and GPIO_readable = '1' and unsigned(adr_save) >= 16#80000C4# and unsigned(adr_save) <= 16#80000C8#) then
                               state             <= READ_GPIO;
                               mem_bus_done <= '0';
                               cache_read_enable <= '0';
