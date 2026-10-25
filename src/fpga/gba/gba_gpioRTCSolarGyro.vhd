@@ -20,7 +20,8 @@ entity gba_gpioRTCSolarGyro is
       GPIO_Dout            : in     std_logic_vector(3 downto 0);  --
       GPIO_writeEna        : in     std_logic;                     -- request pulse coming together with address, no response required
       GPIO_addr            : in     std_logic_vector(1 downto 0);  -- 0..2 for 0x80000C4..0x80000C8
-   
+      GPIO_readable        : out    std_logic;                     -- read-enable bit (0x80000C8 bit 0): 0 = reads return ROM data
+
       vblank_trigger       : in     std_logic;  
       RTC_timestampNew     : in     std_logic;                     -- new current timestamp from system
       RTC_timestampIn      : in     std_logic_vector(31 downto 0); -- timestamp in seconds, current time
@@ -113,6 +114,8 @@ begin
    SAVESTATE_GPIO_BACK(29 downto 28) <= std_logic_vector(to_unsigned(GPIOState'POS(state), 2));
    
    SAVESTATE_GPIOBITS_BACK <= std_logic_vector(bits);
+
+   GPIO_readable <= enable;
 
    process (clk100)
       variable new_command : std_logic_vector(7 downto 0);

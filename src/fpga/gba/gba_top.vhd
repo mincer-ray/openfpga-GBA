@@ -237,6 +237,7 @@ architecture arch of gba_top is
    signal GPIO_Dout            : std_logic_vector(3 downto 0);
    signal GPIO_writeEna        : std_logic;
    signal GPIO_addr            : std_logic_vector(1 downto 0);
+   signal GPIO_readable        : std_logic;
    
    signal gbaon                : std_logic := '0';
    signal gpu_out_active       : std_logic;
@@ -508,7 +509,8 @@ begin
       GPIO_Dout            => GPIO_Dout,    
       GPIO_writeEna        => GPIO_writeEna,
       GPIO_addr            => GPIO_addr,
-      
+      GPIO_readable        => GPIO_readable,
+
       vblank_trigger       => vblank_trigger,
       RTC_timestampNew     => RTC_timestampNew,
       RTC_timestampIn      => RTC_timestampIn,   
@@ -639,7 +641,8 @@ begin
       GPIO_Din             => GPIO_Din,     
       GPIO_Dout            => GPIO_Dout,    
       GPIO_writeEna        => GPIO_writeEna,
-      GPIO_addr            => GPIO_addr,    
+      GPIO_addr            => GPIO_addr,
+      GPIO_readable        => GPIO_readable,
       
       tilt                 => '0',
       AnalogTiltX          => (others => '0'),
