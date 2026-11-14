@@ -37,6 +37,7 @@ entity gba_top is
       increaseSSHeaderCount : in     std_logic;
       save_state            : in     std_logic;
       load_state            : in     std_logic;
+      direct_boot           : in     std_logic := '0';             -- 1 = skip the BIOS boot code, sampled while GBA_on = 0
       maxpixels             : in     std_logic;                    -- limit pixels per line
       specialmodule         : in     std_logic;                    -- 0 = off, 1 = use gamepak GPIO Port at address 0x080000C4..0x080000C8
       Rumble                : out    std_logic := '0';              -- GPIO bit 3 at 0x80000C4 (Drill Dozer / WarioWare Twisted)
@@ -302,6 +303,7 @@ architecture arch of gba_top is
    signal REG_WAITCNT : std_logic_vector(work.pReg_gba_system.WAITCNT.upper downto work.pReg_gba_system.WAITCNT.lower) := (others => '0');                                                                                                                                                                                                   
    signal REG_IME     : std_logic_vector(work.pReg_gba_system.IME    .upper downto work.pReg_gba_system.IME    .lower) := (others => '0');                                                                                                   
    signal REG_POSTFLG : std_logic_vector(work.pReg_gba_system.POSTFLG.upper downto work.pReg_gba_system.POSTFLG.lower) := (others => '0');
+   signal REG_POSTFLG_readback : std_logic_vector(work.pReg_gba_system.POSTFLG.upper downto work.pReg_gba_system.POSTFLG.lower);
    signal REG_HALTCNT : std_logic_vector(work.pReg_gba_system.HALTCNT.upper downto work.pReg_gba_system.HALTCNT.lower) := (others => '0');
    
    signal REG_HALTCNT_written : std_logic;
@@ -457,6 +459,7 @@ begin
       increaseSSHeaderCount => increaseSSHeaderCount,
       save                  => savestate_savestate,
       load                  => savestate_loadstate,
+      direct_boot           => direct_boot,
       savestate_address     => savestate_address,
       savestate_busy        => savestate_busy,      
 
@@ -897,7 +900,10 @@ begin
    iREG_WAITCNT : entity work.eProcReg_gba generic map (work.pReg_gba_system.WAITCNT) port map  (clk100, gb_bus, REG_WAITCNT, REG_WAITCNT, WAITCNT_written);                                                                                                                     
    iREG_ISCGB   : entity work.eProcReg_gba generic map (work.pReg_gba_system.ISCGB  ) port map  (clk100, gb_bus, "0");                                                                                                                     
    iREG_IME     : entity work.eProcReg_gba generic map (work.pReg_gba_system.IME    ) port map  (clk100, gb_bus, REG_IME    , REG_IME    );                                                                                                                       
-   iREG_POSTFLG : entity work.eProcReg_gba generic map (work.pReg_gba_system.POSTFLG) port map  (clk100, gb_bus, REG_POSTFLG, REG_POSTFLG);
+   -- POSTFLG bit 0 ("boot completed") is set by the BIOS boot code. Direct boot
+   -- never runs that code, so force the bit to read as 1.
+   REG_POSTFLG_readback <= REG_POSTFLG(REG_POSTFLG'left downto 1) & (REG_POSTFLG(0) or direct_boot);
+   iREG_POSTFLG : entity work.eProcReg_gba generic map (work.pReg_gba_system.POSTFLG) port map  (clk100, gb_bus, REG_POSTFLG_readback, REG_POSTFLG);
    iREG_HALTCNT : entity work.eProcReg_gba generic map (work.pReg_gba_system.HALTCNT) port map  (clk100, gb_bus, (REG_HALTCNT'range => '0'), REG_HALTCNT, REG_HALTCNT_written);
 
    iSAVESTATE_IRP   : entity work.eProcReg_gba generic map (REG_SAVESTATE_IRP  ) port map (clk100, savestate_bus, IRPFLags , SAVESTATE_IRP);
