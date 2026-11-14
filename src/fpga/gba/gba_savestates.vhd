@@ -5,6 +5,8 @@ use IEEE.numeric_std.all;
 library MEM;
 
 use work.pProc_bus_gba.all;
+use work.pRegmap_gba.all;
+use work.pReg_savestates.all;
 
 entity gba_savestates is
    generic
@@ -25,6 +27,7 @@ entity gba_savestates is
       increaseSSHeaderCount  : in     std_logic;  
       save                   : in     std_logic;  
       load                   : in     std_logic;
+      direct_boot            : in     std_logic := '0';
       savestate_address      : in     integer;
       savestate_busy         : out    std_logic;
 
@@ -33,7 +36,7 @@ entity gba_savestates is
       internal_bus_out       : inout  proc_bus_gb_type := ((others => 'Z'), (others => 'Z'), (others => 'Z'), 'Z', 'Z', 'Z', "ZZ", "ZZZZ", 'Z');
       loading_savestate      : out    std_logic := '0';
       saving_savestate       : out    std_logic := '0';
-      sleep_savestate        : out    std_logic := '0';
+      sleep_savestate        : buffer std_logic := '0';
       bus_ena_in             : in     std_logic;
       
       gb_bus                 : inout  proc_bus_gb_type := ((others => 'Z'), (others => 'Z'), (others => 'Z'), 'Z', 'Z', 'Z', "ZZ", "ZZZZ", 'Z');
@@ -103,11 +106,34 @@ architecture arch of gba_savestates is
       (x"88", x"00000200")
    );
 
+   -- Direct boot: initializes the CPU to its state after the BIOS splash screen.
+   constant DIRECTBOOTCOUNT : integer := 5;
+   signal directboot_counter : integer range 0 to DIRECTBOOTCOUNT;
+   type t_directbootreg is record
+      adr : integer range 0 to INTERNALSCOUNT - 1;
+      val : std_logic_vector(31 downto 0);
+   end record;
+   type t_directbootregs is array(0 to DIRECTBOOTCOUNT - 1) of t_directbootreg;
+   constant directbootregs : t_directbootregs :=
+   (
+      (REG_SAVESTATE_PC.Adr       , x"08000000"), -- cartridge entry point
+      (REG_SAVESTATE_REGS.Adr + 13, x"03007F00"), -- live SP (System mode)
+      (REG_SAVESTATE_REGS_2_13.Adr, x"03007FA0"), -- IRQ SP
+      (REG_SAVESTATE_REGS_3_13.Adr, x"03007FE0"), -- Supervisor SP
+      (REG_SAVESTATE_CPUMIXED.Adr , x"000003C0")  -- System mode, ARM state, IRQ/FIQ enabled
+   );
+
+   signal directboot_run         : std_logic := '0'; -- sequence in progress
+   signal directboot_loadpending : std_logic := '0'; -- load requested during the sequence
+   signal state_loaded           : std_logic := '0'; -- savestate loaded since the last reset
+
    type tstate is
    (
       IDLE,
       RESET_CLEAR,
       RESET_REGISTER,
+      DIRECTBOOT_SETUP,
+      DIRECTBOOT_WRITE,
       SAVE_WAITJUMP,
       SAVE_WAITSETTLE,
       SAVEINTERNALS_WAIT,
@@ -237,12 +263,29 @@ begin
          
          registerram_readvalid <= registerram_readen;
 
+         if (load = '1' and directboot_run = '1') then
+            directboot_loadpending <= '1';
+         end if;
+
          case state is
          
             when IDLE =>
                savetype_counter <= 0;
+               -- Direct boot: sleep the CPU before gb_on rises so it runs no BIOS code.
+               -- A savestate loaded while off takes precedence.
+               if (gb_on = '0') then
+                  sleep_savestate <= direct_boot and not state_loaded;
+               end if;
                if (gb_on = '0' and gb_on_1 = '1') then
                   state                <= RESET_CLEAR;
+               elsif (gb_on = '1' and gb_on_1 = '0' and sleep_savestate = '1') then
+                  -- CPU never ran: no bus activity to settle
+                  state                <= DIRECTBOOT_SETUP;
+                  directboot_run       <= '1';
+                  directboot_counter   <= 0;
+                  loading_savestate    <= '1';
+                  internal_bus_out.rnw <= '0';
+                  SAVE_BusRnW          <= '0';
                elsif (gb_bus.ena = '1' and gb_bus.rnw = '0') then
                   registerram_DataIn   <= gb_bus.Din;
                   registerram_addr_w   <= to_integer(unsigned(gb_bus.adr(9 downto 2)));
@@ -262,6 +305,7 @@ begin
                
             when RESET_CLEAR =>
                state                <= RESET_REGISTER;
+               state_loaded         <= '0';
                internal_bus_out.rst <= '1';
                regdefault_counter   <= 0;
                
@@ -275,6 +319,27 @@ begin
                   state <= IDLE;
                   reset <= '1';
                end if;
+
+            -- #################
+            -- Direct boot
+            -- #################
+
+            -- Preset the CPU, then run the LOADMEMORY states with zero data to clear RAM.
+
+            when DIRECTBOOT_SETUP =>
+               if (directboot_counter < DIRECTBOOTCOUNT) then
+                  -- address/data settle one cycle before the strobe
+                  state                <= DIRECTBOOT_WRITE;
+                  internal_bus_out.adr <= std_logic_vector(to_unsigned(directbootregs(directboot_counter).adr, internal_bus_out.adr'length));
+                  internal_bus_out.Din <= directbootregs(directboot_counter).val;
+               else
+                  state                <= LOADMEMORY_NEXT;
+               end if;
+
+            when DIRECTBOOT_WRITE =>
+               state                <= DIRECTBOOT_SETUP;
+               internal_bus_out.ena <= '1';
+               directboot_counter   <= directboot_counter + 1;
 
             -- #################
             -- SAVE
@@ -578,16 +643,35 @@ begin
                   SAVE_BusAddr   <= savetypes(savetype_counter).addr;
                   bus_out_ena    <= '1';
                   bus_out_active <= '1';
+               elsif (directboot_run = '1') then
+                  directboot_run         <= '0';
+                  directboot_loadpending <= '0';
+                  loading_savestate      <= '0';
+                  if (gb_on = '0') then
+                     -- switched off meanwhile: redo the reset
+                     state           <= RESET_CLEAR;
+                  elsif (directboot_loadpending = '1' or load = '1') then
+                     -- load requested meanwhile: run it now, CPU stays asleep until it ends
+                     state            <= LOAD_WAITSETTLE;
+                     settle           <= 0;
+                     savetype_counter <= 0;
+                     reset            <= '1';
+                  else
+                     state           <= IDLE;
+                     reset           <= '1';
+                     sleep_savestate <= '0';
+                  end if;
                else
                   state             <= IDLE;
                   reset             <= '1';
                   loading_savestate <= '0';
                   sleep_savestate   <= '0';
                   load_done         <= '1';
+                  state_loaded      <= '1';
                end if;
             
             when LOADMEMORY_READ =>
-               if (bus_out_done = '1') then
+               if (bus_out_done = '1' or directboot_run = '1') then
                   bus_out_active    <= '0';
                   state             <= LOADMEMORY_WRITEFIRST;
                   SAVE_BusWriteData <= bus_out_Dout(31 downto 0);
@@ -619,6 +703,13 @@ begin
          
          
          end case;
+
+         -- Direct boot: no storage requests, write zeros.
+         if (directboot_run = '1') then
+            bus_out_ena       <= '0';
+            bus_out_active    <= '0';
+            SAVE_BusWriteData <= (others => '0');
+         end if;
          
       end if;
    end process;

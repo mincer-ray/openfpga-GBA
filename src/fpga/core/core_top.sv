@@ -1490,6 +1490,7 @@ reg [1:0] ff_mode = 0;    // 0 = Hold, 1 = Toggle, 2 = Disabled
 reg force_rtc = 0;        // 0 = Off, 1 = Force enable RTC/GPIO
 reg [1:0] turbo_mode = 0; // 0 = Disabled, 1 = Turbo A, 2 = Turbo B
 reg ff_video_stable = 1'b1; // 0 = Classic FF, 1 = wait for complete rendered lines
+reg direct_boot = 0;      // 0 = Off, 1 = skip the BIOS boot code
 
 reg [13:0] reset_counter = 0;
 wire       core_reset = (reset_counter != 0);
@@ -1505,6 +1506,7 @@ always @(posedge clk_74a) begin
         32'h84: force_rtc      <= bridge_wr_data[0];
         32'h88: turbo_mode     <= bridge_wr_data[1:0];
         32'h8C: ff_video_stable <= bridge_wr_data[0];
+        32'h90: direct_boot    <= bridge_wr_data[0];
         endcase
     end
 end
@@ -1521,6 +1523,10 @@ synch_3 #(.WIDTH(2)) turbo_mode_sync(turbo_mode, turbo_mode_s, clk_sys);
 
 wire ff_video_stable_s;
 synch_3 ff_video_stable_sync(ff_video_stable, ff_video_stable_s, clk_sys);
+
+// Sampled while the GBA is in reset: changes apply at the next reset.
+wire direct_boot_s;
+synch_3 direct_boot_sync(direct_boot, direct_boot_s, clk_sys);
 
 // ============================================================
 // Section 4: Video Output — framebuffer + raster scan
@@ -1738,6 +1744,7 @@ gba_top #(
     .increaseSSHeaderCount(1'b0),
     .save_state          ( ss_save ),
     .load_state          ( ss_load ),
+    .direct_boot         ( direct_boot_s ),
     .maxpixels           ( quirk_sprite ),
     .specialmodule       ( quirk_gpio | force_rtc_s ),
     .Rumble              ( cart_rumble ),

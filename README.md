@@ -13,6 +13,7 @@ LLM assisted port of [MiSTer GBA core](https://github.com/MiSTer-devel/GBA_MiSTe
 - **RTC**
 - **Link Cable** - 2/3/4p Multiplayer, GCN link, GBA wireless, Single Pak download
 - **Rumble (DS Rumble Pak)**
+- **Direct Boot** - skip the BIOS splash screen
 
 ## Fast Forward
 
@@ -41,6 +42,10 @@ At the moment there only seems to be 1 romhack that needs this feature. If you a
 — Manually enables RTC for ROMs that aren't in the database. This is useful for ROM hacks that add RTC support to games that don't normally use it. Make sure to enable this on first load of the hack, ideally as soon as possible during the bios display to avoid any issues with initializing the save. **USE WITH CAUTION:** enabling this on a game that doesn't actually use RTC can cause crashes or glitches.
 ### **⚠️WARNING: Forced RTC setting persists across games! Remember to turn it off before loading a game that doesn't need it⚠️**
 ### **⚠️WARNING: Do not enable this setting unless you are playing a romhack that needs it⚠️**
+
+## Direct Boot
+
+Inspired by the "fast boot" mode on Everdrive cartridges and the "direct boot" mode on [open_agb_firm](https://github.com/profi200/open_agb_firm). This skips the splash screen on boot, and more importantly the cartridge header checks. Certain ROM hacks require this setting turned on to be able to run when using an official BIOS image, but it may cause issues in other games. Changes to the setting take effect at the next reset.
 
 ## Accuracy
 
