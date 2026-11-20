@@ -25,6 +25,7 @@ entity gba_gpu is
       lockspeed            : in    std_logic;
       stable_ff_video      : in    std_logic;
       maxpixels            : in    std_logic;
+      shade_mode           : in    std_logic_vector(2 downto 0);
 
       bitmapdrawmode       : out   std_logic;
 
@@ -200,11 +201,23 @@ begin
       PALETTE_OAM_we         => PALETTE_OAM_we     
    ); 
 
-   -- Direct pixel output (color shade disabled)
-   pixel_out_x    <= pixel_x;
-   pixel_out_y    <= pixel_y;
-   pixel_out_addr <= pixel_addr;
-   pixel_out_we   <= pixel_we;
-   pixel_out_data <= pixel_data(14 downto 10) & pixel_data(14) & pixel_data(9 downto 5) & pixel_data(9) & pixel_data(4 downto 0) & pixel_data(4);
+   igba_gpu_colorshade : entity work.gba_gpu_colorshade
+   port map
+   (
+      clk100         => clk100,
+      shade_mode     => shade_mode,
+      pixel_in_x     => pixel_x,
+      pixel_in_2x    => 0,
+      pixel_in_y     => pixel_y,
+      pixel_in_addr  => pixel_addr,
+      pixel_in_data  => pixel_data,
+      pixel_in_we    => pixel_we,
+      pixel_out_x    => pixel_out_x,
+      pixel_out_2x   => open,
+      pixel_out_y    => pixel_out_y,
+      pixel_out_addr => pixel_out_addr,
+      pixel_out_data => pixel_out_data,
+      pixel_out_we   => pixel_out_we
+   );
 
 end architecture;

@@ -888,6 +888,7 @@ set_global_assignment -name VHDL_FILE ../gba/gba_drawer_mode2.vhd
 set_global_assignment -name VHDL_FILE ../gba/gba_drawer_mode345.vhd
 set_global_assignment -name VHDL_FILE ../gba/gba_drawer_obj.vhd
 set_global_assignment -name VHDL_FILE ../gba/gba_gpu.vhd
+set_global_assignment -name VHDL_FILE ../gba/gba_gpu_colorshade.vhd
 set_global_assignment -name VHDL_FILE ../gba/gba_gpu_drawer.vhd
 set_global_assignment -name VHDL_FILE ../gba/gba_gpu_timing.vhd
 
@@ -918,4 +919,4 @@ set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to port_tran_sck
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to port_tran_sd
 set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
 set_global_assignment -name NUM_PARALLEL_PROCESSORS 4
-set_global_assignment -name SEED 4
+set_global_assignment -name SEED 6

@@ -7,6 +7,7 @@ LLM assisted port of [MiSTer GBA core](https://github.com/MiSTer-devel/GBA_MiSTe
 ## Features
 
 - **Filters**
+- **Color correction (Modify Colors menu)** — Off, GBA 2.2, GBA 1.6, NDS 1.6, VBA 1.4. Defaults to Off; selection persists.
 - **Save States**
 - **Fast Forward (Bound to Y button)**
 - **Button Turbo (Bound to X button)**

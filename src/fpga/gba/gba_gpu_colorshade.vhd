@@ -127,14 +127,39 @@ architecture arch of gba_gpu_colorshade is
    signal shade_lookup_linear : t_shade_lookup_linear;
    
    type t_shade_mult is array(0 to 8) of integer range -1023 to 1023;
-   signal shade_mult : t_shade_mult;
+   signal shade_mult : t_shade_mult := (others => 0);
    
-   type t_shade_lookup_rgb_border is array(0 to 63) of integer range 0 to 1023;
-   signal shade_lookup_rgb_border : t_shade_lookup_rgb_border;
-   
+   -- Precompute the inverse-gamma thresholds into ROM. This is identical
+   -- to the original strict-greater-than comparator search, but avoids a
+   -- writable 64-entry table and three large comparator/multiplexer trees.
+   type t_shade_lookup_rgb is array(0 to 4095) of integer range 0 to 63;
+   function make_rgb_lookup return t_shade_lookup_rgb is
+      variable result : t_shade_lookup_rgb := (others => 0);
+   begin
+      for mode in 0 to 3 loop
+         for value in 0 to 1023 loop
+            for level in 1 to 63 loop
+               if value > shade_lookup_rgb_border_ram(mode * 64 + level) then
+                  result(mode * 1024 + value) := level;
+               end if;
+            end loop;
+         end loop;
+      end loop;
+      return result;
+   end function;
+   constant shade_lookup_rgb : t_shade_lookup_rgb := make_rgb_lookup;
+   signal rgb_bank : integer range 0 to 3 := 0;
+
    -- shade loading
    signal shade_on       : std_logic := '0';
    signal shade_mode_act : std_logic_vector(2 downto 0) := "000";
+   signal shade_mode_valid : std_logic_vector(2 downto 0);
+
+   -- Keep bypass pixels aligned with the six-stage correction pipeline.
+   -- Suppress correction while tables load and until that pipeline refills.
+   type t_raw_pipe is array(1 to 5) of std_logic_vector(14 downto 0);
+   signal raw_pipe : t_raw_pipe;
+   signal shade_ready : std_logic_vector(1 to 5) := (others => '0');
    
    type tstate is
    (
@@ -150,11 +175,9 @@ architecture arch of gba_gpu_colorshade is
    
    signal linear_address : integer range 0 to 127;
    signal mult_address   : integer range 0 to 35;
-   signal rgb_address    : integer range 0 to 255;
    
    signal linear_value   : integer range 0 to 1023;
    signal mult_value     : integer range -1023 to 1023;
-   signal rgb_value      : integer range 0 to 1023;
    
    -- shade processing
    signal pixel_1_x      : integer range 0 to 239;
@@ -195,14 +218,12 @@ architecture arch of gba_gpu_colorshade is
    signal pixel_5_y     : integer range 0 to 159;
    signal pixel_5_addr  : integer range 0 to 38399;
    signal pixel_5_we    : std_logic := '0';
-   signal clip_linear_1 : t_clip_linear;
-   type t_color_upper is array(1 to 3) of std_logic_vector(2 downto 0);
-   signal color_upper : t_color_upper;
-   type t_colorlimitnext is array(1 to 3, 1 to 7) of integer range 0 to 1023;
-   signal colorlimitnext : t_colorlimitnext;
+   signal pixel_5_data : std_logic_vector(17 downto 0);
    
-   
+
 begin
+
+   shade_mode_valid <= shade_mode when unsigned(shade_mode) <= 4 else "000";
 
    -- load shading
    process (clk100)
@@ -210,23 +231,23 @@ begin
       if rising_edge(clk100) then
 
          shade_on <= '0';
-         if (shade_mode /= "000") then
+         if (state = IDLE and shade_mode_act = shade_mode_valid and shade_mode_valid /= "000") then
             shade_on <= '1';
          end if;
          
          case state is
             
             when IDLE =>
-               if (shade_mode_act /= shade_mode) then
-                  shade_mode_act <= shade_mode;
-                  if (shade_mode /= "000") then
+               if (shade_mode_act /= shade_mode_valid) then
+                  shade_mode_act <= shade_mode_valid;
+                  if (shade_mode_valid /= "000") then
                      state          <= READ_VALUE;
                      linear_count   <= 0;
                      mult_count     <= 0;
                      rgb_count      <= 0;
-                     linear_address <= (to_integer(unsigned(shade_mode)) - 1) * 32;
-                     mult_address   <= (to_integer(unsigned(shade_mode)) - 1) * 9;
-                     rgb_address    <= (to_integer(unsigned(shade_mode)) - 1) * 64;
+                     linear_address <= (to_integer(unsigned(shade_mode_valid)) - 1) * 32;
+                     mult_address   <= (to_integer(unsigned(shade_mode_valid)) - 1) * 9;
+                     rgb_bank       <= to_integer(unsigned(shade_mode_valid)) - 1;
                   end if;
                end if;
          
@@ -234,12 +255,10 @@ begin
                state        <= WRITE_VALUE;
                linear_value <= shade_lookup_linear_ram(linear_address);
                mult_value   <= shade_mult_ram(mult_address);
-               rgb_value    <= shade_lookup_rgb_border_ram(rgb_address);
                
             when WRITE_VALUE =>
                shade_lookup_linear(linear_count)  <= linear_value;
                shade_mult(mult_count)             <= mult_value;
-               shade_lookup_rgb_border(rgb_count) <= rgb_value;
                if (rgb_count < 63) then
                   state <= READ_VALUE;
                   if (linear_count < 31) then
@@ -250,7 +269,6 @@ begin
                      mult_count   <= mult_count + 1;
                      mult_address <= mult_address + 1;
                   end if;
-                  rgb_address <= rgb_address + 1;
                   rgb_count   <= rgb_count + 1;
                else
                   state <= IDLE;
@@ -265,6 +283,13 @@ begin
    process (clk100)
    begin
       if rising_edge(clk100) then
+
+         raw_pipe(1) <= pixel_in_data;
+         shade_ready(1) <= shade_on;
+         for i in 2 to 5 loop
+            raw_pipe(i) <= raw_pipe(i - 1);
+            shade_ready(i) <= shade_ready(i - 1);
+         end loop;
 
          -- clock 1 - lookup linear color
          pixel_1_x    <= pixel_in_x;   
@@ -283,20 +308,6 @@ begin
          pixel_2_y    <= pixel_1_y;   
          pixel_2_addr <= pixel_1_addr;
          pixel_2_we   <= pixel_1_we;
-         
-         --shade_linear(1) <=  (865 * color_linear_1 + 174 * color_linear_2 - 015 * color_linear_3) / 1024;
-         --shade_linear(2) <=  ( 92 * color_linear_1 + 696 * color_linear_2 + 236 * color_linear_3) / 1024;
-         --shade_linear(3) <=  (164 * color_linear_1 +  87 * color_linear_2 + 773 * color_linear_3) / 1024;
-         
-         shade_precalc(1, 1) <= 865 * color_linear_1;
-         shade_precalc(2, 1) <=  92 * color_linear_1;
-         shade_precalc(3, 1) <= 164 * color_linear_1;
-         shade_precalc(1, 2) <= 174 * color_linear_2;
-         shade_precalc(2, 2) <= 696 * color_linear_2;
-         shade_precalc(3, 2) <=  87 * color_linear_2;
-         shade_precalc(1, 3) <= 015 * color_linear_3;
-         shade_precalc(2, 3) <= 236 * color_linear_3;
-         shade_precalc(3, 3) <= 773 * color_linear_3;         
          
          shade_precalc(1, 1) <= shade_mult(0) * color_linear_1;
          shade_precalc(1, 2) <= shade_mult(1) * color_linear_2;
@@ -336,58 +347,28 @@ begin
             end if;
          end loop;
                    
-         -- clock 5 - lookup upper 3 bits of color
-         pixel_5_x     <= pixel_4_x;   
-         pixel_5_2x    <= pixel_4_2x;   
-         pixel_5_y     <= pixel_4_y;   
+         -- clock 5 - synchronous inverse-gamma ROM reads
+         pixel_5_x     <= pixel_4_x;
+         pixel_5_2x    <= pixel_4_2x;
+         pixel_5_y     <= pixel_4_y;
          pixel_5_addr  <= pixel_4_addr;
-         pixel_5_we    <= pixel_4_we; 
-         clip_linear_1 <= clip_linear;
-
-         color_upper(1) <= (others => '0');
-         color_upper(2) <= (others => '0');
-         color_upper(3) <= (others => '0');
+         pixel_5_we    <= pixel_4_we;
          for c in 1 to 3 loop
-            for j in 1 to 7 loop
-               colorlimitnext(c, j) <= shade_lookup_rgb_border(j);
-            end loop;
-            for i in 1 to 7 loop
-               if (clip_linear(c) > shade_lookup_rgb_border(i * 8)) then
-                  color_upper(c) <= std_logic_vector(to_unsigned(i, 3)); 
-                  for j in 1 to 7 loop
-                     colorlimitnext(c, j) <= shade_lookup_rgb_border(i * 8 + j);
-                  end loop;
-               end if;
-            end loop;
+            pixel_5_data((3 - c) * 6 + 5 downto (3 - c) * 6) <=
+               std_logic_vector(to_unsigned(shade_lookup_rgb(rgb_bank * 1024 + clip_linear(c)), 6));
          end loop;
-         
-         if (shade_on = '1') then
-         
-            -- clock 6 - lookup lower 3 bits of color
-            pixel_out_x    <= pixel_5_x;   
-            pixel_out_2x   <= pixel_5_2x;   
-            pixel_out_y    <= pixel_5_y;   
-            pixel_out_addr <= pixel_5_addr;
-            pixel_out_we   <= pixel_5_we; 
-         
-            pixel_out_data(17 downto 12) <= color_upper(1) & "000";
-            pixel_out_data(11 downto  6) <= color_upper(2) & "000";
-            pixel_out_data( 5 downto  0) <= color_upper(3) & "000";
-            for c in 1 to 3 loop
-               for i in 1 to 7 loop
-                  if (clip_linear_1(c) > colorlimitnext(c, i)) then
-                     pixel_out_data(((3 - c) * 6 + 2) downto ((3 - c) * 6)) <= std_logic_vector(to_unsigned(i, 3)); 
-                  end if;
-               end loop;
-            end loop;
-            
+
+         -- clock 6 - metadata has the same latency in every mode
+         pixel_out_x    <= pixel_5_x;
+         pixel_out_2x   <= pixel_5_2x;
+         pixel_out_y    <= pixel_5_y;
+         pixel_out_addr <= pixel_5_addr;
+         pixel_out_we   <= pixel_5_we;
+
+         if (shade_on = '1' and shade_ready(5) = '1') then
+            pixel_out_data <= pixel_5_data;
          else
-            pixel_out_x    <= pixel_in_x;   
-            pixel_out_2x   <= pixel_in_2x;   
-            pixel_out_y    <= pixel_in_y;   
-            pixel_out_addr <= pixel_in_addr;
-            pixel_out_we   <= pixel_in_we;
-            pixel_out_data <= pixel_in_data(14 downto 10) & pixel_in_data(14) & pixel_in_data(9 downto 5) & pixel_in_data(9) & pixel_in_data(4 downto 0) & pixel_in_data(4);
+            pixel_out_data <= raw_pipe(5)(14 downto 10) & raw_pipe(5)(14) & raw_pipe(5)(9 downto 5) & raw_pipe(5)(9) & raw_pipe(5)(4 downto 0) & raw_pipe(5)(4);
          end if;
          
       end if;

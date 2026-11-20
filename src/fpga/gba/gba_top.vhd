@@ -38,6 +38,7 @@ entity gba_top is
       save_state            : in     std_logic;
       load_state            : in     std_logic;
       maxpixels             : in     std_logic;                    -- limit pixels per line
+      shade_mode            : in     std_logic_vector(2 downto 0);
       specialmodule         : in     std_logic;                    -- 0 = off, 1 = use gamepak GPIO Port at address 0x080000C4..0x080000C8
       Rumble                : out    std_logic := '0';              -- GPIO bit 3 at 0x80000C4 (Drill Dozer / WarioWare Twisted)
       -- solar/tilt/gyro removed to save ALMs (only affects <2% of games)
@@ -748,6 +749,7 @@ begin
       lockspeed            => GBA_lockspeed,
       stable_ff_video      => GBA_stable_ff_video,
       maxpixels            => maxpixels,
+      shade_mode           => shade_mode,
 
       bitmapdrawmode       => bitmapdrawmode,
 

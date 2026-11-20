@@ -11,6 +11,38 @@
         "value": 1
       },
       {
+        "name": "Modify Colors",
+        "id": 15,
+        "type": "list",
+        "enabled": true,
+        "address": "0x90",
+        "persist": true,
+        "writeonly": true,
+        "defaultval": 0,
+        "options": [
+          {
+            "name": "Off",
+            "value": 0
+          },
+          {
+            "name": "GBA 2.2",
+            "value": 1
+          },
+          {
+            "name": "GBA 1.6",
+            "value": 2
+          },
+          {
+            "name": "NDS 1.6",
+            "value": 3
+          },
+          {
+            "name": "VBA 1.4",
+            "value": 4
+          }
+        ]
+      },
+      {
         "name": "Fast Forward Mode",
         "id": 20,
         "type": "list",
